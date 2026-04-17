@@ -2,11 +2,11 @@
 """
 run_from_config.py — Config-driven planner benchmark runner.
 
-Reads run_config.yaml (or a path given as CLI argument) and runs the
+Reads config/run_config.yaml (or a path given as CLI argument) and runs the
 requested planners on the requested environments.
 
 Usage:
-    python run_from_config.py                   # uses run_config.yaml
+    python run_from_config.py                   # uses config/run_config.yaml
     python run_from_config.py my_config.yaml    # uses custom config
 
 Config format (YAML):
@@ -30,7 +30,7 @@ import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
-from output_paths import PLOTS_DIR, GIFS_DIR, IMAGES_DIR
+from visualization_util.output_paths import PLOTS_DIR, GIFS_DIR, IMAGES_DIR
 from rit_star.rit_star import RITStar
 from rit_star.baselines import InformedRRTStar, BITStar, AITStar, EITStar, APTStar
 from rit_star.metric import EuclideanMetric
@@ -535,12 +535,12 @@ def _save_gif(env_name, env_fn, dim_tag):
     """Save a tree-growth GIF for a 2D or 3D environment."""
     safe = env_name.lower().replace(' ', '_')
     if dim_tag == '2d':
-        from visualize_riemannian import animate_tree_growth
+        from visualization_util.visualize_riemannian import animate_tree_growth
         animate_tree_growth(env_name, env_fn, f'config_{safe}',
                             max_iterations=80, batch_size=100,
                             frame_every=2, fps=8)
     elif dim_tag == '3d':
-        from visualize_riemannian import animate_3d_env
+        from visualization_util.visualize_riemannian import animate_3d_env
         animate_3d_env(env_name, env_fn, f'config_{safe}',
                        max_iterations=80, batch_size=100,
                        frame_every=2, fps=8)
@@ -705,11 +705,11 @@ def run_mc(cfg: dict):
 # ═══════════════════════════════════════════════════════════════════════
 
 if __name__ == '__main__':
-    config_path = sys.argv[1] if len(sys.argv) > 1 else 'run_config.yaml'
+    config_path = sys.argv[1] if len(sys.argv) > 1 else 'config/run_config.yaml'
     if not os.path.isfile(config_path):
         print(f'Config file not found: {config_path}')
         print(f'\nCreate one or copy the example:')
-        print(f'  cp run_config.yaml my_config.yaml')
+        print(f'  cp config/run_config.yaml my_config.yaml')
         sys.exit(1)
 
     cfg = load_config(config_path)

@@ -26,7 +26,7 @@ from rit_star.geodesic import GeodesicComputer
 from rit_star.informed_set import RiemannianInformedSet, EuclideanInformedSet
 
 # ── Output directory ──
-OUT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+OUT_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
                        'visualization', 'plots')
 os.makedirs(OUT_DIR, exist_ok=True)
 

@@ -12,7 +12,7 @@ import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
-from output_paths import RESULTS_DIR, IMAGES_DIR, GIFS_DIR, PLOTS_DIR
+from visualization_util.output_paths import RESULTS_DIR, IMAGES_DIR, GIFS_DIR, PLOTS_DIR
 
 
 def run_experiments_1_4():
@@ -103,10 +103,10 @@ def run_visualizations():
     print('=' * 60)
 
     scripts = [
-        ('Riemannian vis', 'visualize_riemannian.py'),
-        ('Path vis', 'visualize_paths.py'),
-        ('Extra vis', 'visualize_extra.py'),
-        ('Theory vis', 'visualize_theory.py'),
+        ('Riemannian vis', 'visualization_util/visualize_riemannian.py'),
+        ('Path vis', 'visualization_util/visualize_paths.py'),
+        ('Extra vis', 'visualization_util/visualize_extra.py'),
+        ('Theory vis', 'visualization_util/visualize_theory.py'),
     ]
 
     for label, script in scripts:

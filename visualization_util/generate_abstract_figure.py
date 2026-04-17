@@ -24,7 +24,7 @@ from matplotlib.lines import Line2D
 from scipy.interpolate import CubicSpline
 from scipy.ndimage import gaussian_filter
 
-OUT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+OUT_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
                        'paper', 'figures')
 os.makedirs(OUT_DIR, exist_ok=True)
 

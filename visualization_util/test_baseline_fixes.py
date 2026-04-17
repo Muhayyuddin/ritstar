@@ -6,7 +6,7 @@ import time
 import numpy as np
 
 # Add project root
-sys.path.insert(0, '.')
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
 
 from rit_star.environments import (
     env_2d_diagonal_anisotropic,

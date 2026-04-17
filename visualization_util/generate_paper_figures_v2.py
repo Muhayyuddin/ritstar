@@ -38,7 +38,7 @@ from mpl_toolkits.mplot3d.art3d import Poly3DCollection
 from scipy.special import gamma as gamma_fn
 
 # ── Setup ──
-OUT_DIR = os.path.join(os.path.dirname(__file__), 'paper', 'figures')
+OUT_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'paper', 'figures')
 os.makedirs(OUT_DIR, exist_ok=True)
 
 # IEEE-compatible styling

@@ -15,7 +15,7 @@ from matplotlib.patches import FancyArrowPatch, FancyBboxPatch, Circle, Ellipse
 from matplotlib.collections import LineCollection
 import os
 
-OUTDIR = 'paper/figures'
+OUTDIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'paper', 'figures')
 os.makedirs(OUTDIR, exist_ok=True)
 
 plt.rcParams.update({

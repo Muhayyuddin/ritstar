@@ -41,7 +41,7 @@ if Axes3D is not None:
     except (ValueError, KeyError):
         projection_registry.register(Axes3D)
 
-from output_paths import IMAGES_DIR, GIFS_DIR
+from visualization_util.output_paths import IMAGES_DIR, GIFS_DIR
 
 from rit_star.environments import (
     env_2d_obstacle_inflated,

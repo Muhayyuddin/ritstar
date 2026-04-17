@@ -11,7 +11,7 @@ from matplotlib.collections import LineCollection
 from matplotlib import patheffects
 import os
 
-OUTDIR = 'paper/figures'
+OUTDIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'paper', 'figures')
 os.makedirs(OUTDIR, exist_ok=True)
 
 # ── Common styling ───────────────────────────────────────────────────────────

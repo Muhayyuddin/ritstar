@@ -12,7 +12,7 @@ import matplotlib.pyplot as plt
 from matplotlib.patches import Circle
 import matplotlib.animation as animation
 
-from output_paths import IMAGES_DIR, GIFS_DIR
+from visualization_util.output_paths import IMAGES_DIR, GIFS_DIR
 from rit_star.environments import env_2d_obstacle_inflated
 from rit_star.rit_star import RITStar
 

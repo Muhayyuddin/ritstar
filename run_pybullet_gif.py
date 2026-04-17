@@ -13,7 +13,7 @@ import numpy as np
 import pybullet as p
 from PIL import Image
 
-from output_paths import GIFS_DIR
+from visualization_util.output_paths import GIFS_DIR
 from manipulator_env.pybullet_env import UR10eRobotiqEnv
 from manipulator_env.planner_interface import (
     ManipulatorInertiaMetric,

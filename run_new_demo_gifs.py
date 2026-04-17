@@ -16,7 +16,7 @@ from rit_star.environments import (
     env_2d_hyper_dense,
     env_3d_dense_labyrinth,
 )
-from visualize_riemannian import (
+from visualization_util.visualize_riemannian import (
     animate_tree_growth,
     animate_3d_surface_tree,
     animate_3d_env,

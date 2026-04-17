@@ -24,7 +24,7 @@ from matplotlib.collections import LineCollection
 from matplotlib import cm, colors
 import matplotlib.patheffects as pe
 
-from output_paths import PLOTS_DIR
+from visualization_util.output_paths import PLOTS_DIR
 from rit_star.rit_star import RITStar
 from rit_star.metric import EuclideanMetric, CollisionAdaptiveMetric
 from rit_star.environments import env_2d_obstacle_inflated, env_2d_maze

@@ -31,9 +31,9 @@ from scipy.interpolate import CubicSpline
 from scipy.ndimage import gaussian_filter
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-OUT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'paper', 'figures')
+OUT_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'paper', 'figures')
 os.makedirs(OUT_DIR, exist_ok=True)
 
 # ═══════════════════════════════════════════════════════════════════════

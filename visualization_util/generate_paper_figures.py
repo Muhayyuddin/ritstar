@@ -28,7 +28,7 @@ from matplotlib import patheffects
 import matplotlib.gridspec as gridspec
 
 # ── Setup ──
-OUT_DIR = os.path.join(os.path.dirname(__file__), 'paper', 'figures')
+OUT_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'paper', 'figures')
 os.makedirs(OUT_DIR, exist_ok=True)
 
 # IEEE-compatible styling

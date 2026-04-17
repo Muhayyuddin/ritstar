@@ -20,14 +20,14 @@ from scipy.interpolate import CubicSpline
 from scipy.spatial.distance import cdist
 import matplotlib.path as mpath
 
-# Add rit_star to path
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+# Add project root to path
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from rit_star.metric import ObstacleInflatedMetric
 from rit_star.geodesic import GeodesicComputer
 from rit_star.informed_set import RiemannianInformedSet, EuclideanInformedSet
 
-OUT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+OUT_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
                        'paper', 'figures')
 os.makedirs(OUT_DIR, exist_ok=True)
 

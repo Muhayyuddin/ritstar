@@ -22,7 +22,7 @@ import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
-from output_paths import PLOTS_DIR
+from visualization_util.output_paths import PLOTS_DIR
 from rit_star.experiments import (
     experiment_volume_ratio_validation,
     experiment_ao_validation,

@@ -121,7 +121,7 @@ fig.suptitle(f'Riemannian Informed Set Comparison (c_best = {c_best:.2f})\n' +
 plt.tight_layout()
 
 # Save
-out_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+out_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
                        'visualization', 'plots')
 os.makedirs(out_dir, exist_ok=True)
 out_path = os.path.join(out_dir, 'conformal_geodesic_comparison.png')

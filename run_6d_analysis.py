@@ -21,7 +21,7 @@ from rit_star.comparison import (
     _generate_theory_validation_csv, PLANNER_NAMES
 )
 from rit_star.environments import env_6d_tabletop, env_6d_shelf, env_6d_cluttered
-from output_paths import RESULTS_DIR, PLOTS_DIR
+from visualization_util.output_paths import RESULTS_DIR, PLOTS_DIR
 
 # 6D environments
 ENVS_6D = {

@@ -32,7 +32,7 @@ import matplotlib.pyplot as plt
 from matplotlib.backends.backend_pdf import PdfPages
 from scipy.stats import wilcoxon, mannwhitneyu
 
-from output_paths import RESULTS_DIR, PLOTS_DIR
+from visualization_util.output_paths import RESULTS_DIR, PLOTS_DIR
 
 from rit_star.rit_star import RITStar, riemannian_edge_cost
 from rit_star.baselines import InformedRRTStar, BITStar, AITStar, EITStar, APTStar

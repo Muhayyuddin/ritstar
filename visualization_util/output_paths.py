@@ -7,7 +7,7 @@ generated files land in the organised folder structure.
 
 import os
 
-_ROOT = os.path.dirname(os.path.abspath(__file__))
+_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 RESULTS_DIR = os.path.join(_ROOT, "results")
 IMAGES_DIR = os.path.join(_ROOT, "visualization", "images")

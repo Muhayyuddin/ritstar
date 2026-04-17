@@ -12,7 +12,7 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from matplotlib.patches import Circle, Rectangle
 
-from output_paths import IMAGES_DIR
+from visualization_util.output_paths import IMAGES_DIR
 
 from rit_star.rit_star import RITStar
 from rit_star.baselines import InformedRRTStar, BITStar, AITStar, EITStar, APTStar
