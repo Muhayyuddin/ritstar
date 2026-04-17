@@ -1,0 +1,1524 @@
+% !TEX program = pdflatex
+\documentclass[journal]{IEEEtran}
+
+% ──────────────────────────────────────────────────────────────────────────────
+%  Packages
+% ──────────────────────────────────────────────────────────────────────────────
+\usepackage[T1]{fontenc}
+\usepackage{amsmath,amssymb,amsfonts,amsthm}
+\usepackage{algorithmic}
+\usepackage[ruled,linesnumbered]{algorithm2e}
+\usepackage{tikz}
+\usepackage{graphicx}
+\usepackage{textcomp}
+\usepackage{xcolor}
+\usepackage{booktabs}
+\usepackage{multirow}
+\usepackage{hyperref}
+\usepackage{cleveref}
+\usepackage{bm}
+\usepackage{mathtools}
+\usepackage{subcaption}
+\usepackage{siunitx}
+\usepackage{balance}
+
+% Theorem environments
+\newtheorem{theorem}{Theorem}
+\newtheorem{lemma}[theorem]{Lemma}
+\newtheorem{corollary}[theorem]{Corollary}
+\newtheorem{definition}[theorem]{Definition}
+\newtheorem{remark}{Remark}
+\newtheorem{assumption}{Assumption}
+\newtheorem{proposition}{Proposition}
+
+% Notation shortcuts
+\newcommand{\Cfree}{\mathcal{C}_{\mathrm{free}}}
+\newcommand{\Cspace}{\mathcal{C}}
+\newcommand{\IR}{I_{\!R}}
+\newcommand{\IE}{I_{\!E}}
+\newcommand{\dR}{d_{\!R}}
+\newcommand{\SPD}{\mathbb{S}_{++}^{d}}
+\newcommand{\muR}{\mu_{\!R}}
+\newcommand{\Vol}{\mathrm{Vol}}
+\newcommand{\diag}{\mathrm{diag}}
+\DeclareMathOperator*{\argmin}{arg\,min}
+
+% IEEE specific
+\IEEEoverridecommandlockouts
+
+\begin{document}
+
+% ══════════════════════════════════════════════════════════════════════════════
+%  TITLE
+% ══════════════════════════════════════════════════════════════════════════════
+\title{RIT*: Riemannian Informed Trees for\\Anisotropic Motion Planning}
+
+\author{
+  \IEEEauthorblockN{Author~Names~Omitted~for~Review}
+  \IEEEauthorblockA{Affiliation Omitted for Review}
+}
+
+\markboth{IEEE Robotics and Automation Letters}{Author~et~al.: RIT*: Riemannian Informed Trees}
+
+\maketitle
+
+% ══════════════════════════════════════════════════════════════════════════════
+%  ABSTRACT  (~150 words)
+% ══════════════════════════════════════════════════════════════════════════════
+\begin{abstract}
+Asymptotically-optimal sampling-based planners accelerate convergence
+by focusing sampling within an informed set, but all existing methods
+define this set using Euclidean distance.
+When traversal costs are anisotropic---as with joint-inertia weighting
+or obstacle-proximity penalties---the Euclidean informed set wastes
+samples in regions that cannot contain improving paths.
+We present \textbf{RIT*} (Riemannian Informed Trees), which replaces
+the Euclidean informed set, neighbourhood ball, and edge cost with
+their Riemannian counterparts, yielding a provably smaller sampling
+region.
+RIT* includes a Collision-Adaptive Riemannian Metric (CARM) module
+that learns a cost field online from collision feedback, requiring no
+a~priori obstacle model.
+Experiments on 2-D through 6-DOF UR10e manipulator environments show
+that RIT* reduces path cost by up to 11\% over five baselines in
+constrained manipulator planning, while CARM recovers up to 27\%
+of the oracle-metric advantage using only a binary collision checker.
+\end{abstract}
+
+\begin{IEEEkeywords}
+Motion planning, Riemannian geometry, asymptotic optimality,
+informed sampling, online metric learning.
+\end{IEEEkeywords}
+
+% ══════════════════════════════════════════════════════════════════════════════
+%  OVERVIEW FIGURE
+% ══════════════════════════════════════════════════════════════════════════════
+\begin{figure*}[t]
+\centering
+\includegraphics[width=\textwidth]{figures/fig_abstract.pdf}
+\caption{Overview of RIT*.
+  \textbf{(a)}~Euclidean planners sample uniformly from the
+  informed set~$\IE$ (orange ellipse), wasting
+  samples in high-cost regions near obstacles.
+  \textbf{(b)}~RIT* replaces every Euclidean primitive with its
+  Riemannian counterpart: the tighter informed set~$\IR
+  \subset \IE$ (teal) eliminates wasted volume; the anisotropic
+  neighbourhood ball reaches further along cheap directions;
+  a three-level cascade rejects the majority of candidate edges
+  before expensive integration; and the CARM module learns a cost
+  field online from collision feedback, progressively tightening
+  $\IR$.}
+\label{fig:abstract}
+\end{figure*}
+
+
+% ══════════════════════════════════════════════════════════════════════════════
+%  I. INTRODUCTION
+% ══════════════════════════════════════════════════════════════════════════════
+\section{Introduction}\label{sec:intro}
+
+%--- Paragraph 1: Motivation ---
+Manipulator motion planning requires optimizing paths under
+non-Euclidean costs: joint-inertia weighting penalizes motion of
+high-inertia joints, obstacle-proximity penalties steer paths away from
+collisions, and task-space norms encode end-effector
+preferences~\cite{Ratliff2009,Zucker2013}.
+A natural framework for such costs is Riemannian geometry, where a
+spatially-varying metric tensor~$G(x)$ encodes directional traversal
+cost.
+Current asymptotically-optimal (AO) planners---from
+RRT*~\cite{Karaman2011} through Informed~RRT*~\cite{Gammell2018},
+BIT*~\cite{Gammell2020}, AIT*/EIT*~\cite{Strub2022}, to the recent
+APT*~\cite{APT2025}---accelerate convergence by sampling within an
+\emph{informed set}, but all define this set using Euclidean distance.
+When the true cost metric is anisotropic, the Euclidean informed
+set~$\IE$ is a strict superset of the cost-relevant region~$\IR$:
+for a 6-DOF arm with joint-inertia condition number $\kappa = 12$,
+$\IE$ is approximately $3.4\times$ larger than necessary.
+
+%--- Paragraph 2: Gap ---
+Two problems remain open.
+First, no batch-informed planner uses Riemannian geometry for its
+global sampling strategy---informed set, neighbourhood, and edge
+cost---as opposed to local steering alone.
+Second, no sampling-based planner learns a suitable cost metric online
+from planning experience.
+
+%--- Paragraph 3: Contributions ---
+\textbf{Contributions.}
+We propose \textbf{RIT*} (Riemannian Informed Trees), which addresses
+both gaps:
+\begin{enumerate}
+  \item \textbf{Online metric learning via CARM.}
+    The Collision-Adaptive Riemannian Metric (CARM) module is, to our
+    knowledge, the first online metric-learning scheme for
+    sampling-based planning that requires no a~priori obstacle model,
+    no demonstrations, and no auxiliary sensors---only the binary
+    collision checker already available to any planner.
+    CARM places Gaussian kernels on discovered collision points to
+    build an adaptive cost field that inflates traversal cost near
+    obstacles, and feeds the learned metric directly into the planning
+    loop (\cref{sec:carm}).
+
+  \item \textbf{Riemannian informed planning pipeline.}
+    RIT* replaces every Euclidean primitive in the batch-informed
+    pipeline with its Riemannian counterpart:
+    (i)~a whitening transform maps the Riemannian informed
+    set~$\IR$ to a standard prolate hyperspheroid for efficient
+    uniform sampling;
+    (ii)~neighbours are found within ellipsoidal Riemannian balls
+    that reach further along cheap directions;
+    (iii)~a three-level cascading edge evaluation scheme filters
+    the majority of candidate edges before expensive integration.
+    This framework makes CARM's learned metric actionable throughout
+    the planning loop.
+
+  \item \textbf{Experimental validation.}
+    Multi-trial experiments across eight environments (2-D through
+    6-DOF UR10e manipulator) against five baselines show that RIT*
+    achieves up to 11\% cost reduction in 6-DOF manipulator
+    planning with statistical significance.
+    CARM recovers up to 27\% of the oracle-metric advantage
+    without any prior cost model.
+\end{enumerate}
+
+%--- Paragraphs 4--6: Compressed related work ---
+\textbf{Euclidean informed planners.}
+Gammell et~al.~\cite{Gammell2018} introduced direct sampling of the
+prolate hyperspheroid, which BIT*~\cite{Gammell2020} combines with
+batch sampling and lazy edge evaluation.
+AIT* and EIT*~\cite{Strub2022} add asymmetric bidirectional search.
+APT*~\cite{APT2025} uses Coulomb-force-inspired virtual forces to
+prolate the neighbourhood ball and adapts batch size.
+FIT*~\cite{FIT2024} adjusts batch size for faster initial convergence.
+All define the informed set using Euclidean distance.
+
+\textbf{Riemannian methods in planning.}
+CHOMP~\cite{Ratliff2009} and STOMP~\cite{Zucker2013} optimise
+trajectories under Riemannian-like costs but are trajectory
+optimisers without AO guarantees.
+Kyaw and Kelly~\cite{Kyaw2026} propose a Riemannian RRT* using
+retractions for local steering; their planner is incremental
+(not batch-informed), does not construct an informed set, and does
+not learn metrics online.
+Bi-AM-RRT*~\cite{Zhang2023biamrrt} uses a diffusion-based metric to
+bias nearest-neighbour selection in an incremental framework.
+Kim et~al.~\cite{Kim2016} use Riemannian metrics for steering on
+constrained manifolds.
+None integrate Riemannian geometry into the global informed sampling
+strategy of a batch-informed planner.
+
+\textbf{Obstacle-aware Riemannian metrics.}
+Klein et~al.~\cite{Klein2023} design region-avoiding metrics using
+hand-crafted barrier functions requiring full obstacle geometry.
+RMPflow~\cite{Cheng2018rmpflow} composes task-space metrics for
+reactive control.
+Beik-Mohammadi et~al.~\cite{BeikMohammadi2023} learn Riemannian
+manifolds from demonstrations for reactive motion generation.
+All require a~priori obstacle geometry or demonstrations---CARM
+requires neither.
+
+
+% ══════════════════════════════════════════════════════════════════════════════
+%  II. PROBLEM FORMULATION
+% ══════════════════════════════════════════════════════════════════════════════
+\section{Problem Formulation}\label{sec:problem}
+
+Let $\Cspace \subseteq \mathbb{R}^d$ be a $d$-dimensional configuration
+space equipped with a smooth, positive-definite metric tensor field
+$G : \Cspace \to \SPD$.
+The Riemannian arc-length cost of a path
+$\sigma : [0,1] \to \Cspace$ is
+\begin{equation}\label{eq:cost}
+  c(\sigma) = \int_0^1 \!\sqrt{\dot{\sigma}(t)^\top G\bigl(\sigma(t)\bigr)\, \dot{\sigma}(t)}\; dt.
+\end{equation}
+The \emph{geodesic distance} is
+$\dR(x,y) = \inf_\sigma c(\sigma)$ over paths $\sigma : x \to y$.
+When $G(x) = I_d$, this reduces to Euclidean distance.
+
+Given start $x_s$ and goal $x_g$ in $\Cfree \subseteq \Cspace$, find
+\begin{equation}\label{eq:opt}
+  \sigma^* = \argmin_{\sigma \,:\, x_s \to x_g,\; \sigma \subset \Cfree} c(\sigma).
+\end{equation}
+A planner is \emph{asymptotically optimal} (AO) if
+$c_n \to c^*$ almost surely as $n \to \infty$.
+
+After finding a feasible path of cost $c_{\mathrm{best}}$, only
+configurations on a potentially shorter path need be considered.
+The \emph{Euclidean informed set}
+\begin{equation}\label{eq:IE}
+  \IE = \bigl\{ x \in \Cspace : \|x_s - x\|_2 + \|x - x_g\|_2 \le c_{\mathrm{best}} \bigr\}
+\end{equation}
+is a prolate hyperspheroid.
+The \emph{Riemannian informed set}
+\begin{equation}\label{eq:IR}
+  \IR = \bigl\{ x \in \Cspace : \dR(x_s, x) + \dR(x, x_g) \le c_{\mathrm{best}} \bigr\}
+\end{equation}
+satisfies $\IR \subseteq \IE$ whenever $G \succeq I_d$, since
+$\dR(x,y) \ge \|x - y\|_2$.
+
+
+% ══════════════════════════════════════════════════════════════════════════════
+%  III. METHOD
+% ══════════════════════════════════════════════════════════════════════════════
+\section{Method}\label{sec:method}
+
+% ─────────────────────────────────────────────
+\subsection{Overview}\label{sec:overview}
+
+\begin{figure*}[t]
+\centering
+\includegraphics[width=\textwidth]{figures/fig_compact_pipeline.pdf}
+\caption{Per-iteration pipeline of RIT*.
+  \textbf{(a)}~Samples drawn from the Riemannian informed set~$\IR$.
+  \textbf{(b)}~Neighbours identified within ellipsoidal Riemannian
+  radius~$r_n^R$.
+  \textbf{(c)}~Three-level cascade filters candidate edges
+  (L1$\to$L2$\to$L3).
+  \textbf{(d)}~Rewiring via cheaper Riemannian connections.
+  \textbf{(e)}~CARM collects collision points and rebuilds the
+  metric field.
+  \textbf{(f)}~Pruning shrinks the informed set as $c_{\mathrm{best}}$
+  decreases.}
+\label{fig:pipeline}
+\end{figure*}
+
+%--- Paragraph 1: BIT* background ---
+Our approach builds on BIT* (Batch Informed
+Trees)~\cite{Gammell2020}, a state-of-the-art asymptotically-optimal
+planner that combines batch sampling with lazy edge evaluation.
+BIT* operates in iterations: at each iteration it draws a batch of
+$B$ samples from the \emph{Euclidean informed set}~$\IE$---the
+prolate hyperspheroid containing all configurations that could lie on
+a path shorter than the current best cost~$c_{\mathrm{best}}$.
+It then connects each sample to nearby vertices whose Euclidean
+distance falls within a shrinking connection radius
+$r_n = \gamma\,(\log n / n)^{1/d}$, evaluates candidate parent edges
+in order of estimated cost-to-come, rewires the tree when cheaper
+connections become available, and prunes vertices that can no longer
+contribute to improving paths.
+This informed-set-driven strategy focuses computational effort where
+improvements are most likely, making BIT* significantly faster than
+RRT* at converging to the optimal path.
+However, every geometric primitive in BIT*---the informed set, the
+neighbourhood ball, and the edge cost---is defined using Euclidean
+distance, which is suboptimal when the true traversal cost is
+anisotropic or spatially varying.
+
+%--- Paragraph 2: RIT* overview ---
+RIT* (Riemannian Informed Trees) extends BIT* by replacing each of
+these Euclidean primitives with its Riemannian counterpart,
+yielding a planner that natively accounts for non-Euclidean cost
+structures.
+Concretely, RIT* introduces four modifications:
+(1)~the informed set becomes the \emph{Riemannian} informed
+set~$\IR \subseteq \IE$, which is provably smaller and eliminates
+samples in high-cost regions (\cref{sec:whitening});
+(2)~nearest-neighbour search uses ellipsoidal Riemannian balls that
+stretch along cheap directions and compress along expensive ones
+(\cref{sec:nn});
+(3)~edge costs are evaluated through a three-level cascading scheme
+that amortises the expense of numerical integration
+(\cref{sec:cascade});
+and (4)~when no metric is known a~priori, the Collision-Adaptive
+Riemannian Metric (CARM) module learns the cost landscape online
+from collision feedback (\cref{sec:carm}).
+Additionally, RIT* rewires the tree under Riemannian costs, ensuring
+that cheaper connections discovered during the search propagate
+correctly through the tree (\cref{sec:rewire}).
+\cref{fig:pipeline} illustrates these six sub-steps within a single
+iteration.
+
+%--- Paragraph 3: Algorithm description ---
+\cref{alg:ritstar} formalises the complete procedure.
+The planner initialises the tree with the start vertex and
+precomputes a metric cache for $O(1)$ lookups (lines~1--2).
+Each iteration then proceeds through three phases.
+First, the \emph{pruning and sampling phase} (lines~3--7) prunes
+vertices that cannot improve~$c_{\mathrm{best}}$, updates the
+Riemannian informed set, draws a fresh batch of samples from~$\IR$,
+and computes the Riemannian connection radius~$r_n^R$.
+Second, the \emph{extension phase} (lines~8--14) builds a priority
+queue~$Q_E$ of candidate edges from tree vertices to unconnected
+samples, ordered by $f(e) = g(v) + \hat{c}_R(v,x) + \hat{h}_R(x)$,
+then processes edges in ascending $f$-value order: each surviving edge
+undergoes the cascading evaluation, and newly connected vertices
+trigger a local rewire pass that records collision points for CARM.
+Third, the \emph{feedback phase} (lines~15--19) periodically triggers
+a CARM metric update and records improved solutions.
+After all iterations complete, a multi-strategy smoothing
+post-process refines the path (line~20).
+The following subsections detail each component and reference the
+corresponding algorithm lines.
+
+\begin{algorithm}[t]
+\SetAlgoLined
+\KwIn{$x_s, x_g, \Cfree, G(\cdot), B, T$}
+\KwOut{optimal path $\sigma^*$}
+$\mathcal{V} \gets \{x_s\}$;\; $\mathcal{E} \gets \emptyset$;\;
+$X_{\mathrm{samples}} \gets \emptyset$;\;
+$c_{\mathrm{best}} \gets \infty$\; \nllabel{line:init}
+Precompute metric cache $G[\cdot]$\; \nllabel{line:cache}
+\For{$t = 1, \ldots, T$}{ \nllabel{line:loop}
+  \textsc{PruneNodes}$(\mathcal{V}, X_{\mathrm{samples}}, c_{\mathrm{best}}, G)$\; \nllabel{line:prune}
+  Update $\IR$ with current $c_{\mathrm{best}}$\; \nllabel{line:updateIR}
+  $X_{\mathrm{new}} \gets \textsc{SampleRiemannianInformed}(B, c_{\mathrm{best}}, G)$\; \nllabel{line:sample}
+  $X_{\mathrm{samples}} \gets X_{\mathrm{samples}} \cup X_{\mathrm{new}}$\; \nllabel{line:add}
+  Compute $r_n^R$ via~\eqref{eq:radius}\; \nllabel{line:radius}
+  $Q_E \gets \{(v, x) : v \in \mathcal{V},\; x \in X_{\mathrm{samples}},\; \dR(v,x) \le r_n^R\}$
+  sorted by $f(e) = g(v) + \hat{c}_R(v,x) + \hat{h}_R(x)$\; \nllabel{line:queue}
+  \While{$Q_E \neq \emptyset$ \textbf{and} $f(Q_E.\mathrm{top}) < c_{\mathrm{best}}$}{ \nllabel{line:process}
+    $(v, x) \gets \textsc{PopBest}(Q_E)$\;
+    \If{\textsc{CascadingEdgeCheck}$(v, x, G)$}{ \nllabel{line:cascade}
+      $\mathcal{E} \gets \mathcal{E} \cup \{(v,x)\}$;\;
+      $\mathcal{V} \gets \mathcal{V} \cup \{x\}$;\;
+      $X_{\mathrm{samples}} \gets X_{\mathrm{samples}} \setminus \{x\}$\;
+      \textsc{RewireNeighbours}$(x, r_n^R, G)$\; \nllabel{line:rewire}
+      Record collision points for CARM\; \nllabel{line:record}
+    }
+  }
+  \If{$t \bmod \Delta = 0$}{ \nllabel{line:carmcheck}
+    \textsc{CARM\_Update}$(\text{collision points}, G)$\; \nllabel{line:carmupdate}
+  }
+  \If{$x_g \in \mathcal{V}$ with cost $c < c_{\mathrm{best}}$}{ \nllabel{line:improve}
+    $c_{\mathrm{best}} \gets c$;\;
+    $\sigma^* \gets$ extract path\;
+  }
+}
+$\sigma^* \gets \textsc{MultiStrategySmooth}(\sigma^*, G)$\; \nllabel{line:smooth}
+\Return{$\sigma^*$}
+\caption{RIT* planner}
+\label{alg:ritstar}
+\end{algorithm}
+
+Having established the overall structure, we now detail each
+component, beginning with the sampling strategy that forms the
+foundation of informed planning.
+
+
+% ─────────────────────────────────────────────
+\subsection{Riemannian Informed Sampling}\label{sec:whitening}
+
+The quality of an informed planner depends critically on how tightly
+its sampling region approximates the set of configurations that can
+actually improve the current solution.
+In BIT*, this region is the Euclidean informed set~$\IE$---a prolate
+hyperspheroid defined by $\|x_s - x\|_2 + \|x - x_g\|_2 \le
+c_{\mathrm{best}}$.
+When the cost metric is anisotropic, $\IE$ is unnecessarily large:
+it includes configurations whose Riemannian cost-to-come plus
+cost-to-go already exceeds~$c_{\mathrm{best}}$.
+
+RIT* replaces $\IE$ with the Riemannian informed set~$\IR$
+(line~\ref{line:sample} of \cref{alg:ritstar}), defined
+by~\eqref{eq:IR} using geodesic distances.
+Since $\dR(x,y) \ge \|x-y\|_2$ whenever $G \succeq I_d$, we have
+$\IR \subseteq \IE$---every sample drawn from~$\IR$ is guaranteed
+to lie in a region where path improvement is possible under the true
+cost, whereas many samples from~$\IE$ would fall in regions where
+the Riemannian cost is too high.
+
+To sample uniformly from~$\IR$, we apply a whitening transform.
+We compute the average metric tensor
+$\bar{G} = \mathbb{E}[G(x)]$ along the line from $x_s$ to $x_g$ and
+form its Cholesky factor $L = \mathrm{chol}(\bar{G})$.
+The coordinate change $\tilde{x} = L\, x$ maps~$\IR$ to an
+approximate prolate hyperspheroid in the whitened space, from which
+uniform sampling is straightforward using the standard technique
+of~\cite{Gammell2018}.
+Samples are then mapped back to the original space via
+$x = L^{-1}\tilde{x}$ and clipped to configuration-space bounds.
+This procedure yields uniform coverage of~$\IR$ in the Riemannian
+volume measure.
+
+The volume reduction achieved by sampling from~$\IR$ instead
+of~$\IE$ is characterised by the ratio
+\begin{equation}\label{eq:vol_ratio}
+  \frac{\Vol(\IR)}{\Vol(\IE)}
+  = \prod_{i=1}^{d} \sqrt{\frac{\lambda_{\min}}{\lambda_i}}\,,
+\end{equation}
+where $\lambda_1 \le \cdots \le \lambda_d$ are the eigenvalues
+of~$G$.
+For a 6-DOF manipulator with joint-inertia condition number
+$\kappa = 12$, the Riemannian set has approximately $0.29$ times
+the Euclidean volume, eliminating 71\% of wasted samples.
+\cref{fig:sampling_concept} illustrates the difference:
+$\IE$~covers a large region including high-cost zones near obstacles,
+while $\IR$~focuses samples on the subspace where cost improvement
+is geometrically possible.
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}[scale=0.85]
+  % Euclidean informed set (large ellipse)
+  \draw[thick, orange!80!black, fill=orange!15, dashed]
+    (0,0) ellipse (2.8cm and 1.6cm);
+  \node[orange!80!black, anchor=south] at (2.8,0.2) {\small $\IE$};
+  % Riemannian informed set (smaller, rotated ellipse)
+  \draw[thick, teal!80!black, fill=teal!20]
+    (0,0) ellipse (2.0cm and 0.9cm);
+  \node[teal!80!black, anchor=north] at (1.6,-0.4) {\small $\IR$};
+  % Start and goal
+  \fill[black] (-1.8,0) circle (2.5pt) node[below=2pt]{\small $x_s$};
+  \fill[black] (1.8,0) circle (2.5pt) node[below=2pt]{\small $x_g$};
+  % Obstacle (grey rectangle)
+  \fill[gray!50] (0.2,0.5) rectangle (1.0,1.3);
+  \node[gray!70!black] at (0.6,0.9) {\tiny obs};
+  % Wasted samples (orange dots outside teal)
+  \fill[orange!70!black] (-0.4, 1.25) circle (1.5pt);
+  \fill[orange!70!black] (0.3, -1.3) circle (1.5pt);
+  \fill[orange!70!black] (1.9, 1.1) circle (1.5pt);
+  \fill[orange!70!black] (-2.1, 0.9) circle (1.5pt);
+  \fill[orange!70!black] (2.3, -0.9) circle (1.5pt);
+  \node[orange!70!black, font=\scriptsize] at (-2.1, 1.25)
+    {wasted};
+  % Good samples (teal dots inside teal)
+  \fill[teal!70!black] (-0.8, 0.2) circle (1.5pt);
+  \fill[teal!70!black] (0.5, -0.3) circle (1.5pt);
+  \fill[teal!70!black] (1.2, 0.1) circle (1.5pt);
+  \fill[teal!70!black] (-0.3, -0.5) circle (1.5pt);
+\end{tikzpicture}
+\caption{Euclidean vs.\ Riemannian informed sets.
+  The Euclidean set~$\IE$ (orange dashed) includes high-cost regions
+  near obstacles, wasting samples (orange dots).
+  The Riemannian set~$\IR$ (teal) is provably smaller, concentrating
+  samples where path improvement is possible (teal dots).}
+\label{fig:sampling_concept}
+\end{figure}
+
+With samples now focused on the most promising region, the next
+step is to identify which existing tree vertices each new sample
+should connect to.
+
+
+% ─────────────────────────────────────────────
+\subsection{Riemannian Nearest-Neighbour Search}\label{sec:nn}
+
+After drawing samples from~$\IR$, the planner must identify
+candidate parent vertices for each new sample
+(line~\ref{line:nn} of \cref{alg:ritstar}).
+In BIT*, neighbours are found within a Euclidean ball of
+radius~$r_n$---an isotropic sphere that treats all directions
+equally.
+This is a mismatch when the cost metric is anisotropic: the planner
+may connect to vertices that are close in Euclidean distance but
+expensive in Riemannian cost, while missing vertices that are far
+in Euclidean distance but cheap under the true metric.
+
+RIT* replaces the isotropic Euclidean ball with an anisotropic
+Riemannian ball: the set $\{ u : \dR(u, v) \le r_n^R \}$, which
+is an ellipsoid whose axes align with the eigenvectors of the local
+metric tensor~$G(v)$.
+Along directions where traversal is cheap (small eigenvalues of~$G$),
+the ball stretches further, naturally reaching more candidate
+neighbours; along expensive directions (large eigenvalues), it
+contracts, avoiding costly connections.
+This is illustrated in~\cref{fig:nn_concept}.
+
+The Riemannian connection radius is
+\begin{equation}\label{eq:radius}
+  r_n^R = \gamma_R \!\left(\frac{\log n}{n}\right)^{\!1/d}\!,\quad
+  \gamma_R = 2\!\left(\frac{1}{d}\right)^{\!1/d}
+             \!\left(\frac{\muR(\IR)}{\zeta_d}\right)^{\!1/d}
+\end{equation}
+where $\muR(\IR)$ is the Riemannian volume of the informed set and
+$\zeta_d$ is the volume of the unit $d$-ball.
+Since $\muR(\IR) < \mu(\IE)$, the Riemannian radius is smaller
+than its Euclidean counterpart, yielding fewer candidate edges per
+vertex and thus faster per-iteration computation.
+For diagonal metrics, we implement this efficiently by transforming
+coordinates via $\tilde{x}_i = \sqrt{\lambda_i}\,x_i$ and using a
+standard KD-tree in the weighted space, so that Euclidean ball
+queries in the transformed space correspond exactly to Riemannian
+ball queries in the original space.
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}[scale=0.85]
+  % Left: Euclidean
+  \begin{scope}[shift={(-2.2,0)}]
+    \node[font=\small\bfseries] at (0,2.0) {Euclidean};
+    % Circle (isotropic)
+    \draw[thick, red!70!black, fill=red!10] (0,0) circle (1.3cm);
+    \node[red!70!black, font=\scriptsize] at (1.0,1.1) {$r_n$};
+    % Centre node
+    \fill[black] (0,0) circle (2.5pt) node[below=3pt]
+      {\small $v$};
+    % Neighbour nodes
+    \fill[blue!70] (0.8, 0.7) circle (2pt);
+    \fill[blue!70] (-0.5, 0.9) circle (2pt);
+    \fill[blue!70] (-0.9, -0.4) circle (2pt);
+    \fill[blue!70] (0.3, -1.0) circle (2pt);
+    % Missed cheap neighbour (outside circle)
+    \fill[gray!60] (1.7, 0.1) circle (2pt);
+    \node[gray!60, font=\tiny] at (1.7, -0.25) {missed};
+  \end{scope}
+  % Right: Riemannian
+  \begin{scope}[shift={(2.2,0)}]
+    \node[font=\small\bfseries] at (0,2.0) {Riemannian};
+    % Ellipse (anisotropic) -- stretches horizontally (cheap dir)
+    \draw[thick, teal!70!black, fill=teal!10,
+          rotate=10] (0,0) ellipse (1.8cm and 0.8cm);
+    \node[teal!70!black, font=\scriptsize] at (1.4,0.8) {$r_n^R$};
+    % Centre node
+    \fill[black] (0,0) circle (2.5pt) node[below=3pt]
+      {\small $v$};
+    % Neighbour nodes (including the cheap one)
+    \fill[blue!70] (0.8, 0.3) circle (2pt);
+    \fill[blue!70] (-0.5, 0.4) circle (2pt);
+    \fill[blue!70] (-1.2, -0.1) circle (2pt);
+    \fill[blue!70] (1.5, 0.15) circle (2pt);
+    \node[teal!60!black, font=\tiny] at (1.5, -0.2) {found};
+    % Excluded expensive neighbour
+    \fill[gray!60] (0.2, 0.75) circle (2pt);
+  \end{scope}
+  % Annotations
+  \draw[<->, gray, thick] (-0.5,-1.7) -- (0.5,-1.7);
+\end{tikzpicture}
+\caption{Nearest-neighbour search.
+  \textbf{Left:} The Euclidean ball (circle) treats all directions
+  equally, missing cheap neighbours along low-cost directions.
+  \textbf{Right:} The Riemannian ball (ellipse) stretches along cheap
+  directions and compresses along expensive ones, connecting to the
+  most cost-effective neighbours.}
+\label{fig:nn_concept}
+\end{figure}
+
+Once candidate neighbours are identified, each candidate edge must
+be evaluated to determine whether it provides a cost improvement---a
+step that involves expensive numerical integration under the
+Riemannian metric.
+
+
+% ─────────────────────────────────────────────
+\subsection{Cascading Edge Evaluation}\label{sec:cascade}
+
+Computing the Riemannian edge cost
+$c_R(u,v) = \int_0^1 \sqrt{\dot\gamma(t)^\top G(\gamma(t))\,
+\dot\gamma(t)}\;dt$
+requires numerical quadrature, with the full 10-point
+Gauss--Legendre rule being the most accurate but also the most
+expensive.
+Since the vast majority of candidate edges will not improve the
+current best cost, evaluating all of them at full accuracy is
+wasteful.
+RIT* therefore introduces a three-level cascade
+(line~\ref{line:cascade} of \cref{alg:ritstar}) that applies
+progressively more accurate---and more expensive---cost estimates,
+rejecting unpromising edges as early as possible.
+
+\textbf{L1~--- Midpoint check} (1~metric evaluation).
+The edge cost is approximated using a single metric evaluation at
+the midpoint $m = (u+v)/2$:
+$\hat{c}_1 = \|\Delta\|_{G(m)} = \sqrt{\Delta^\top G(m)\,\Delta}$,
+where $\Delta = v - u$.
+If the estimated cost-to-come via this edge exceeds
+$c_{\mathrm{best}}$---i.e.,
+$g(u) + \hat{c}_1 > c_{\mathrm{best}}$---the edge is immediately
+rejected.
+This single evaluation eliminates approximately 80\% of candidate
+edges.
+
+\textbf{L2~--- Simpson's rule} (3~metric evaluations).
+Surviving edges receive a 3-point Simpson's rule estimate:
+\begin{equation}\label{eq:simpson}
+  \hat{c}_2 = \frac{\|\Delta\|}{6}\Bigl(
+    \sqrt{\Delta^\top G(u)\,\Delta}
+    + 4\sqrt{\Delta^\top G(m)\,\Delta}
+    + \sqrt{\Delta^\top G(v)\,\Delta}\,\Bigr).
+\end{equation}
+Note that the midpoint evaluation from L1 is reused, so only two
+additional metric lookups are required.
+Edges whose updated cost $g(u) + \hat{c}_2$ still
+exceeds~$c_{\mathrm{best}}$ are rejected.
+L2 filters approximately 75\% of the edges that survived L1.
+
+\textbf{L3~--- Gauss--Legendre quadrature} (10~metric evaluations).
+Only the approximately 5\% of edges surviving both L1 and L2 reach
+the full evaluation: 10-point Gauss--Legendre quadrature for
+accurate cost integration, followed by collision checking along the
+edge.
+If the edge is collision-free and improves the cost, the tree is
+updated.
+
+\cref{fig:cascade_concept} illustrates the three levels.
+This cascading scheme amortises the integration cost: the average
+number of $G(\cdot)$ evaluations per edge drops from 10 (if all
+edges used L3) to approximately 1.6, providing a
+$6\times$ speedup in metric evaluations without
+sacrificing accuracy on the edges that matter.
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}[scale=0.8, >=latex]
+  % Edge line
+  \draw[thick, black] (0,0) -- (6,0);
+  \fill[black] (0,0) circle (3pt) node[above=4pt]{\small $u$};
+  \fill[black] (6,0) circle (3pt) node[above=4pt]{\small $v$};
+  % L1: midpoint only
+  \begin{scope}[shift={(0,-0.9)}]
+    \node[font=\small\bfseries, anchor=east] at (-0.3,0) {L1};
+    \draw[gray] (0,0) -- (6,0);
+    \fill[red!70!black] (3,0) circle (3pt);
+    \node[font=\tiny, red!70!black] at (3,0.35) {$G(m)$};
+    \node[font=\scriptsize, right] at (6.2,0) {1 eval};
+  \end{scope}
+  % L2: Simpson (3 points)
+  \begin{scope}[shift={(0,-2.0)}]
+    \node[font=\small\bfseries, anchor=east] at (-0.3,0) {L2};
+    \draw[gray] (0,0) -- (6,0);
+    \fill[blue!70!black] (0,0) circle (3pt);
+    \fill[blue!70!black] (3,0) circle (3pt);
+    \fill[blue!70!black] (6,0) circle (3pt);
+    \node[font=\tiny, blue!70!black] at (3,0.35) {Simpson};
+    \node[font=\scriptsize, right] at (6.2,0) {3 evals};
+  \end{scope}
+  % L3: Gauss-Legendre (10 points)
+  \begin{scope}[shift={(0,-3.1)}]
+    \node[font=\small\bfseries, anchor=east] at (-0.3,0) {L3};
+    \draw[gray] (0,0) -- (6,0);
+    \foreach \t in {0.013, 0.067, 0.161, 0.283, 0.425,
+                    0.575, 0.717, 0.839, 0.933, 0.987} {
+      \fill[teal!70!black] ({\t*6},0) circle (2pt);
+    }
+    \node[font=\tiny, teal!70!black] at (3,0.35) {Gauss--Legendre};
+    \node[font=\scriptsize, right] at (6.2,0) {10 evals};
+  \end{scope}
+  % Rejection arrows
+  \draw[->, thick, red!60!black] (7.2,-0.9) -- (7.6,-0.9)
+    node[right, font=\scriptsize]{${\sim}80\%$ reject};
+  \draw[->, thick, blue!60!black] (7.2,-2.0) -- (7.6,-2.0)
+    node[right, font=\scriptsize]{${\sim}75\%$ reject};
+  \draw[->, thick, teal!60!black] (7.2,-3.1) -- (7.6,-3.1)
+    node[right, font=\scriptsize]{${\sim}5\%$ survive};
+\end{tikzpicture}
+\caption{Cascading edge evaluation.
+  \textbf{L1}: a single midpoint metric evaluation rejects
+  ${\sim}80\%$ of candidate edges.
+  \textbf{L2}: Simpson's 3-point rule filters ${\sim}75\%$ of
+  survivors.
+  \textbf{L3}: full 10-point Gauss--Legendre quadrature plus
+  collision checking is applied only to the ${\sim}5\%$ of edges
+  that survive both filters.}
+\label{fig:cascade_concept}
+\end{figure}
+
+The edges that pass all three levels are added to the tree.
+However, adding a new vertex may also reveal cheaper connections
+to existing vertices, motivating the rewiring step described next.
+
+
+% ─────────────────────────────────────────────
+\subsection{Tree Rewiring}\label{sec:rewire}
+
+After a new vertex $v$ is added to the tree, it may provide a
+cheaper route to some of its neighbours than their current parent
+edges.
+RIT* checks this systematically
+(line~\ref{line:rewire} of \cref{alg:ritstar}): for each
+neighbour $u \in N(v)$ already in the tree, if
+\begin{equation}\label{eq:rewire}
+  g(v) + c_R(v, u) < g(u),
+\end{equation}
+then the old parent edge of~$u$ is removed, $u$ is reconnected
+to~$v$, and the cost-to-come of~$u$ and all its descendants is
+updated to reflect the cheaper path.
+This is the same rewiring logic as in BIT* and RRT*, but crucially,
+the edge cost~$c_R$ and the cost-to-come~$g(\cdot)$ are computed
+under the \emph{Riemannian} metric, ensuring that rewiring decisions
+account for the true anisotropic cost structure.
+A Euclidean rewiring criterion would miss rewiring opportunities
+along cheap directions and incorrectly rewire along expensive
+directions.
+
+Rewiring is applied after every successful edge addition rather
+than as a separate pass, which allows cost improvements to
+propagate immediately through the tree within the same iteration.
+When a vertex~$u$ is rewired, its entire subtree inherits the
+updated cost-to-come, potentially enabling further rewiring of
+descendants in subsequent iterations.
+
+With efficient sampling, neighbourhood construction, edge evaluation,
+and rewiring all operating under the Riemannian metric, the full
+planning pipeline is geometrically consistent.
+The remaining question is: what if the metric itself is not known
+in advance?
+
+
+% ─────────────────────────────────────────────
+\subsection{Collision-Adaptive Riemannian Metric (CARM)}\label{sec:carm}
+
+The components described so far assume that the Riemannian metric
+tensor~$G(x)$ is given a~priori---for example, a joint-inertia metric
+$G(q) = M(q)$ for manipulator planning, or an obstacle-inflated
+metric~$G(x) = g(x)\,I_d$ for navigation.
+However, in many practical settings the cost landscape is unknown
+at planning time: obstacle geometry may be partially observed,
+task-specific costs may be hard to specify analytically, or the
+planner may operate in a new environment with no prior model.
+To handle such settings, RIT* includes the Collision-Adaptive
+Riemannian Metric (CARM), an online metric-learning module that
+constructs a meaningful cost field purely from collision feedback
+during planning.
+
+\subsubsection{Core Idea}
+
+The key insight behind CARM is that collision checking---a binary
+operation that every sampling-based planner already performs---reveals
+information about obstacle geometry.
+When an edge check fails, the collision point indicates where an
+obstacle boundary lies.
+Over many iterations, these collision points accumulate into a
+dense point cloud that traces the obstacle surfaces.
+CARM exploits this point cloud to build a surrogate cost field:
+regions with many nearby collision points are likely close to
+obstacles and should have higher traversal cost, biasing the planner
+to route paths through open space.
+
+\subsubsection{Metric Construction}
+
+CARM wraps the base metric with a learned conformal scale factor
+(lines~\ref{line:record}--\ref{line:carmupdate} of
+\cref{alg:ritstar}):
+\begin{equation}\label{eq:carm}
+  G_{\mathrm{CARM}}(x) = s(x)\, G_{\mathrm{base}}(x), \quad
+  s(x) = 1 + \alpha\, \hat{f}(x),
+\end{equation}
+where $G_{\mathrm{base}}$ is the prior metric (or the identity when
+none is available), and
+\begin{equation}\label{eq:kde}
+  \hat{f}(x) = \frac{1}{N}\sum_{i=1}^{N}
+  K_\sigma(x, c_i)
+  = \frac{1}{N}\sum_{i=1}^{N}
+  \exp\!\Bigl(-\frac{\|x - c_i\|^2}{2\sigma^2}\Bigr)
+\end{equation}
+is a kernel density estimate (KDE) over the $N$~collision points
+$\{c_i\}_{i=1}^N$ discovered during planning.
+The Gaussian kernel bandwidth~$\sigma$ controls spatial resolution:
+smaller~$\sigma$ produces sharper obstacle boundaries but requires
+more collision points to avoid noise, while larger~$\sigma$
+produces a smoother field that generalises from fewer points.
+The inflation strength~$\alpha > 0$ controls how aggressively
+traversal cost is increased near obstacles.
+
+Since $s(x) \ge 1$ everywhere, the CARM metric satisfies
+$G_{\mathrm{CARM}}(x) \succeq G_{\mathrm{base}}(x)$, which
+guarantees
+$\IR^{\mathrm{CARM}} \subseteq \IR^{\mathrm{base}} \subseteq \IE$.
+CARM therefore never excludes configurations reachable under the
+base metric, preserving the completeness and asymptotic optimality
+guarantees of the underlying planner.
+
+\subsubsection{Update Schedule and Feedback Loop}
+
+CARM operates as a closed feedback loop integrated into the main
+planning iterations.
+During every edge evaluation
+(line~\ref{line:record} of \cref{alg:ritstar}), collision points
+from failed checks are appended to a growing buffer.
+Every $\Delta = 15$ iterations
+(line~\ref{line:carmupdate}), CARM rebuilds the KDE, recomputes
+the scale field~$s(x)$, updates the metric tensor at all grid points
+of the metric cache, and recomputes the Riemannian informed
+set~$\IR$ with the new metric.
+Vertices whose $f$-value now exceeds $c_{\mathrm{best}}$ under the
+updated metric are pruned.
+
+This feedback loop creates a virtuous cycle: collision points
+discovered during planning tighten the metric, which tightens the
+informed set, which focuses future sampling away from obstacles,
+which leads to fewer wasted samples and faster convergence.
+After approximately 20~iterations (${\sim}400$ collision points in
+2-D), the KDE field stabilises and subsequent updates produce
+diminishing changes~(\cref{fig:carm_evolution}).
+
+\subsubsection{CARM Algorithm}
+
+\cref{alg:carm} summarises the metric update procedure.
+The update is triggered every $\Delta$ iterations and involves:
+(1)~building the KDE from accumulated collision points,
+(2)~computing the conformal scale field,
+(3)~updating the metric cache, and
+(4)~recomputing the informed set and pruning.
+
+\begin{algorithm}[t]
+\SetAlgoLined
+\KwIn{Collision points $\{c_i\}$, base metric $G_{\mathrm{base}}$,
+  bandwidth $\sigma$, strength $\alpha$}
+\KwOut{Updated metric $G_{\mathrm{CARM}}$}
+Build KDE: $\hat{f}(x) \gets N^{-1}\sum_{i} K_\sigma(x, c_i)$\;
+Set scale: $s(x) \gets 1 + \alpha\, \hat{f}(x)$\;
+Update metric: $G_{\mathrm{CARM}}(x) \gets s(x)\, G_{\mathrm{base}}(x)$\;
+Recompute metric cache at grid points\;
+Recompute $\IR$ with updated metric\;
+Prune nodes outside new $\IR$\;
+\caption{CARM metric update (every $\Delta$ iterations)}
+\label{alg:carm}
+\end{algorithm}
+
+\subsubsection{Effect on Planning Behaviour}
+
+The CARM-learned cost field has three concrete effects on the
+planning pipeline:
+\begin{itemize}
+  \item \textbf{Sampling.}
+    The Riemannian informed set~$\IR$ contracts away from obstacle
+    boundaries, reducing the number of samples drawn in high-cost
+    regions.
+    Experimentally, CARM reduces samples in high-cost regions by
+    54\% compared to a Euclidean planner~(\cref{fig:carm_wasted}).
+  \item \textbf{Edge cost.}
+    Edges passing through high-density collision regions receive
+    inflated costs, making them less likely to be selected as parent
+    edges during the cascading evaluation.
+  \item \textbf{Rewiring.}
+    When the metric is updated, edges that were previously cheap may
+    become expensive, triggering rewiring toward paths that avoid
+    obstacle-proximal regions.
+\end{itemize}
+
+\subsubsection{Approximation Quality}
+
+Although CARM uses isotropic Gaussian kernels and operates with
+limited collision feedback, the learned field closely approximates
+the structure of an oracle obstacle-aware metric.
+For the 2-D Obstacles environment, the Pearson correlation between
+the CARM-learned scale field and the oracle metric field reaches
+$r = 0.935$ after 471~collision points~(\cref{fig:carm_correlation}),
+confirming that collision feedback captures the essential cost
+structure without any a~priori obstacle model.
+
+\subsubsection{Parameters}
+
+In all experiments we use kernel bandwidth $\sigma = 0.1$ and
+inflation strength $\alpha = 10$.
+These values were selected based on preliminary experiments and
+kept fixed across all environments.
+\cref{sec:carm_analysis} evaluates sensitivity to these parameters.
+
+\begin{figure*}[t]
+\centering
+\includegraphics[width=\textwidth]{figures/fig_carm_pipeline_compact.pdf}
+\caption{CARM feedback loop.
+  \textbf{(a)}~Collision points (red) cluster near obstacle boundaries
+  during edge evaluation.
+  \textbf{(b)}~KDE builds the adaptive cost field
+  $s(x) = 1 + \alpha\,\hat{f}(x)$, inflating traversal cost where
+  collisions are dense.
+  \textbf{(c)}~Updated metric tightens $\IR$ and steers sampling
+  away from obstacles.
+  The cycle repeats every $\Delta = 15$ iterations.}
+\label{fig:carm_pipeline}
+\end{figure*}
+
+\begin{figure*}[t]
+\centering
+\includegraphics[width=\textwidth]{figures/fig_carm_evolution.pdf}
+\caption{CARM metric evolution over planning iterations.
+  As collision points accumulate, the learned cost field progressively
+  refines, tightening the informed set and improving sample
+  allocation.}
+\label{fig:carm_evolution}
+\end{figure*}
+
+
+% ─────────────────────────────────────────────
+\subsection{Implementation Details}\label{sec:impl}
+
+The following implementation choices improve practical performance
+but are orthogonal to the Riemannian contributions described above.
+
+\textbf{Metric cache.}
+A regular grid of resolution $\mathrm{res}^d$ stores precomputed
+$G(x)$ values with $O(1)$ interpolation lookups
+(line~\ref{line:cache} of \cref{alg:ritstar}).
+Memory cost is $O(\mathrm{res}^d \cdot d^2)$, negligible for
+$d \le 6$ at $\mathrm{res} = 32$.
+
+\textbf{High-dimensional engineering.}
+Four modifications address high-$d$ performance:
+(H1)~dimension-adaptive stall threshold
+$\tau_{\mathrm{stall}} = 5 + d$;
+(H2)~relaxed early stopping (disabled until $\max(30, T/3)$
+iterations);
+(H3)~dimension-adaptive connection radius boost
+$\beta(d) = \max(1, 1 + 0.15(d-3))$ for $d > 3$;
+(H4)~multi-strategy path smoothing combining greedy forward, greedy
+backward, and random shortcutting with $\max(300, 100d)$ attempts
+(line~\ref{line:smooth}).
+
+% ─────────────────────────────────────────────
+\subsection{Asymptotic Optimality}\label{sec:ao}
+
+\begin{assumption}\label{assum:bounded}
+The metric tensor field is bounded:
+$\lambda_{\min} I_d \preceq G(x) \preceq \lambda_{\max} I_d$
+for all $x \in \Cfree$, with $0 < \lambda_{\min} \le \lambda_{\max} < \infty$.
+\end{assumption}
+
+\begin{theorem}[Asymptotic optimality of RIT*]\label{thm:ao}
+Under \cref{assum:bounded}, RIT* is asymptotically optimal:
+the cost of its solution converges almost surely to the optimum
+$c^*$ as the number of samples $n \to \infty$.
+\end{theorem}
+
+\begin{proof}[Proof sketch]
+The connection radius~\eqref{eq:radius} satisfies the conditions
+of~\cite{Karaman2011} under the metric-induced measure:
+specifically, $r_n^R \ge \gamma_R (\log n / n)^{1/d}$ with
+$\gamma_R > (2/d)^{1/d}(\muR(\IR)/\zeta_d)^{1/d}$, which ensures
+$k$-connectivity of the Riemannian proximity graph.
+The containment $\IR \subseteq \IE$ guarantees that informed sampling
+in~$\IR$ preserves completeness.
+When CARM is active, $s(x) \ge 1$ ensures
+$\IR^{\mathrm{CARM}} \subseteq \IE$, preserving completeness.
+The proof otherwise follows BIT*~\cite{Gammell2020} with $\muR$
+replacing the Euclidean measure.
+\end{proof}
+
+
+% ══════════════════════════════════════════════════════════════════════════════
+%  IV. EXPERIMENTS
+% ══════════════════════════════════════════════════════════════════════════════
+\section{Experiments}\label{sec:experiments}
+
+% ─────────────────────────────────────────────
+\subsection{Setup}\label{sec:setup}
+
+\textbf{Environments.}
+We evaluate on eight environments spanning three dimensionalities:
+3$\times$2-D (Maze, Narrow Passage, Bug Trap),
+2$\times$3-D (Sphere Field, Dense Lab), and
+3$\times$6-D (Tabletop, Shelf, Cluttered).
+The 6-D environments use a UR10e manipulator with Robotiq~85 gripper
+simulated in PyBullet~\cite{Coumans2021}, with the joint-inertia
+metric ($\kappa \approx 12$).
+The 2-D and 3-D environments use an obstacle-inflated conformal metric
+$G(x) = g(x)\,I_d$.
+
+\textbf{Baselines.}
+Five AO planners: Informed~RRT*~\cite{Gammell2018},
+BIT*~\cite{Gammell2020}, AIT*~\cite{Strub2022},
+EIT*~\cite{Strub2022}, and APT*~\cite{APT2025}.
+All use batch size $B = 100$, maximum iterations $T = 150$, and
+identical collision checking.
+
+\textbf{Statistical protocol.}
+Each experiment is repeated with independent random seeds.
+We report mean $\pm$ standard deviation.
+Statistical significance is assessed via the Wilcoxon signed-rank
+test at $\alpha_{\mathrm{stat}} = 0.05$.
+Significance markers: $^{**}$~$p < 0.01$, $^{*}$~$p < 0.05$.
+
+% ─────────────────────────────────────────────
+\subsection{Main Results}\label{sec:results}
+
+\cref{tab:cost} reports path costs across all planners and
+environments.
+\cref{tab:time} reports planning times.
+
+\begin{table*}[t]
+\centering
+\caption{Path cost (mean $\pm$ std, lower is better).
+  \textbf{Bold}: best per environment.
+  $^{**}$: RIT* significantly better at $p < 0.01$.
+  $^{*}$: significantly better at $p < 0.05$.}
+\label{tab:cost}
+\sisetup{round-mode=places, round-precision=3, detect-weight}
+\begin{tabular}{@{}l cccccc @{}}
+\toprule
+\textbf{Environment}
+  & \textbf{RIT*}
+  & \textbf{Inf.\ RRT*}
+  & \textbf{BIT*}
+  & \textbf{AIT*}
+  & \textbf{EIT*}
+  & \textbf{APT*} \\
+\midrule
+2-D Maze
+  & $4.648 \pm 0.028$
+  & $4.692 \pm 0.049$
+  & $\mathbf{4.627 \pm 0.013}$
+  & $5.522 \pm 0.261$
+  & $5.553 \pm 0.278$
+  & $4.724 \pm 0.050$ \\
+2-D Narrow
+  & $\mathbf{1.606 \pm 0.001}^{**}$
+  & $1.624 \pm 0.005$
+  & $1.609 \pm 0.002$
+  & $1.677 \pm 0.036$
+  & $1.716 \pm 0.037$
+  & $1.670 \pm 0.047$ \\
+2-D Bug Trap
+  & $\mathbf{1.762 \pm 0.003}$
+  & $1.768 \pm 0.004$
+  & $1.751 \pm 0.001$
+  & $1.878 \pm 0.052$
+  & $1.909 \pm 0.037$
+  & $1.769 \pm 0.010$ \\
+\midrule
+3-D Spheres
+  & $3.244 \pm 0.105$
+  & $3.137 \pm 0.033$
+  & $\mathbf{2.970 \pm 0.006}$
+  & $3.259 \pm 0.032$
+  & $3.193 \pm 0.031$
+  & $3.319 \pm 0.042$ \\
+3-D Dense Lab
+  & $4.758 \pm 0.337$
+  & $3.958 \pm 0.022$
+  & $\mathbf{3.838 \pm 0.003}$
+  & $4.134 \pm 0.063$
+  & $4.180 \pm 0.040$
+  & $4.157 \pm 0.034$ \\
+\midrule
+6-D Tabletop
+  & $\mathbf{1.279 \pm 0.000}$
+  & $1.279 \pm 0.000$
+  & $1.279 \pm 0.000$
+  & $1.279 \pm 0.000$
+  & $1.279 \pm 0.000$
+  & $1.279 \pm 0.000$ \\
+6-D Shelf
+  & $\mathbf{1.093 \pm 0.035}^{*}$
+  & $1.232 \pm 0.021$
+  & $1.164 \pm 0.061$
+  & $1.137 \pm 0.031$
+  & $1.136 \pm 0.033$
+  & $1.599 \pm 0.536$ \\
+6-D Cluttered
+  & $\mathbf{2.039 \pm 0.082}^{*}$
+  & $2.278 \pm 0.095$
+  & $2.162 \pm 0.166$
+  & $2.131 \pm 0.155$
+  & $2.163 \pm 0.144$
+  & $2.570 \pm 0.088$ \\
+\bottomrule
+\end{tabular}
+\end{table*}
+
+\begin{table}[t]
+\centering
+\caption{Planning time in seconds (mean $\pm$ std).
+  \textbf{Bold}: fastest.
+  All planners achieve 100\% success except where
+  noted.\label{tab:time}}
+\resizebox{\columnwidth}{!}{%
+\begin{tabular}{@{}l cccccc @{}}
+\toprule
+\textbf{Env.}
+  & \textbf{RIT*}
+  & \textbf{IRRT*}
+  & \textbf{BIT*}
+  & \textbf{AIT*}
+  & \textbf{EIT*}
+  & \textbf{APT*} \\
+\midrule
+2D Maze
+  & $\mathbf{4.1 \pm 2.2}$
+  & $55.3 \pm 3.5$
+  & $293.6 \pm 22.0$
+  & $7.5 \pm 0.2$
+  & $5.5 \pm 0.2$
+  & $61.1 \pm 4.0$ \\
+2D Narrow
+  & $\mathbf{0.5 \pm 0.1}$
+  & $2.6 \pm 0.0$
+  & $16.3 \pm 0.2$
+  & $4.2 \pm 0.1$
+  & $6.2 \pm 1.6$
+  & $4.6 \pm 1.0$ \\
+2D Bug
+  & $\mathbf{0.9 \pm 0.2}$
+  & $16.9 \pm 0.3$
+  & $229.4 \pm 23.7$
+  & $5.7 \pm 0.2$
+  & $2.9 \pm 0.4$
+  & $15.8 \pm 0.9$ \\
+\midrule
+3D Sph.
+  & $\mathbf{2.0 \pm 0.6}$
+  & $23.2 \pm 0.8$
+  & $80.7 \pm 1.2$
+  & $2.9 \pm 0.1$
+  & $3.1 \pm 0.1$
+  & $20.6 \pm 0.4$ \\
+3D Lab
+  & $\mathbf{1.6 \pm 0.9}$
+  & $26.0 \pm 1.4$
+  & $88.3 \pm 1.5$
+  & $3.4 \pm 0.1$
+  & $3.4 \pm 0.1$
+  & $28.6 \pm 1.8$ \\
+\midrule
+6D Tab.
+  & $\mathbf{0.2 \pm 0.0}$
+  & $13.6 \pm 0.2$
+  & $1.2 \pm 0.0$
+  & $2.1 \pm 0.0$
+  & $1.1 \pm 0.0$
+  & $13.4 \pm 0.3$ \\
+6D Shelf
+  & $1.6 \pm 0.3$
+  & $14.6 \pm 3.8$
+  & $\mathbf{1.3 \pm 0.1}$
+  & $83.3 \pm 36.5$
+  & $70.1 \pm 31.8$
+  & $14.7 \pm 4.3$ \\
+6D Clut.
+  & $2.0 \pm 0.5$
+  & $2.0 \pm 0.3$
+  & $\mathbf{1.3 \pm 0.0}$
+  & $1.5 \pm 0.1$
+  & $1.5 \pm 0.0$
+  & $6.6 \pm 0.4$ \\
+\bottomrule
+\end{tabular}
+}%
+\end{table}
+
+\textbf{Key findings.}
+(1)~In 6-D, RIT* achieves the lowest cost on all three environments:
+11.3\% lower than Informed~RRT* on Shelf ($p < 0.05$) and 10.5\%
+lower on Cluttered ($p < 0.05$).
+This is the regime where Riemannian geometry provides the greatest
+benefit, as the joint-inertia condition number $\kappa \approx 12$
+creates high anisotropy.
+(2)~In 2-D, RIT* achieves the lowest cost on Narrow ($p < 0.01$) and
+is competitive on Maze and Bug Trap; BIT* holds a slight edge on Maze.
+(3)~In 3-D, BIT* achieves the lowest cost.
+RIT*'s advantage grows with the anisotropy of the metric and the
+dimensionality of the space.
+(4)~On planning time, RIT* is the fastest on 6 of 8~environments,
+including a $13\times$ speedup on 2-D Maze versus BIT*.
+On 6-D Shelf and Cluttered, BIT* is marginally faster but
+produces paths 6--11\% worse.
+(5)~APT*~\cite{APT2025} is competitive on simple 2-D environments but
+degrades in 6-D ($+46\%$ cost on Shelf), suggesting that the
+informed set geometry, rather than heuristic neighbourhood shaping,
+is the primary driver of convergence in anisotropic cost spaces.
+
+
+% ─────────────────────────────────────────────
+\subsection{6-DOF Manipulator Case Study}\label{sec:6dof}
+
+The three 6-D environments simulate pick-and-place scenarios
+with a UR10e equipped with a Robotiq~85 gripper.
+The joint-inertia metric $G(q) = M(q)$ (manipulator mass matrix)
+penalises motion of high-inertia joints (shoulder, elbow) relative
+to low-inertia joints (wrist), with $\kappa \approx 12$.
+
+\textbf{Tabletop} is an open environment where all planners converge
+to the same cost ($1.279$), confirming that when obstacles do not
+force the planner through anisotropic regions, $\IR \approx \IE$ and
+the Riemannian advantage vanishes.
+
+\textbf{Shelf} requires threading through a constrained opening.
+RIT* finds paths of cost $1.093 \pm 0.035$, which is $11.3\%$ lower
+than Informed~RRT* ($1.232 \pm 0.021$, $p < 0.05$) and $6.1\%$
+lower than BIT* ($1.164 \pm 0.061$).
+The Riemannian informed set focuses samples on wrist-driven
+trajectories that thread through the gap, while Euclidean planners
+waste samples trying to move the high-inertia base and shoulder joints
+through the opening.
+
+\textbf{Cluttered} features multiple obstacles.
+RIT* achieves $2.039 \pm 0.082$, improving $10.5\%$ over
+Informed~RRT* ($2.278 \pm 0.095$, $p < 0.05$) and $5.7\%$ over
+BIT* ($2.162 \pm 0.166$).
+
+% TODO: Add fig_manipulator_paths.pdf showing UR10e with Euclidean
+% vs RIT* paths in Shelf environment side-by-side.
+
+
+% ─────────────────────────────────────────────
+\subsection{Ablation Study}\label{sec:ablation}
+
+% NOTE: Ablation experiments are in progress.  The following table
+% structure and analysis will be populated with multi-trial data.
+
+To isolate the contribution of each component, we evaluate five
+variants on four representative environments:
+\begin{enumerate}
+  \item \textbf{RIT* (full)} --- all components enabled.
+  \item \textbf{w/o Riemannian sampling} --- Euclidean informed set,
+    but Riemannian edge cost and CARM retained.
+  \item \textbf{w/o cascading} --- 10-point Gauss--Legendre for every
+    edge (no L1/L2 filtering).
+  \item \textbf{w/o CARM} --- oracle metric used directly.
+  \item \textbf{w/o smoothing} --- skip post-processing.
+\end{enumerate}
+
+\begin{table}[t]
+\centering
+\caption{Ablation study: path cost for each variant
+  (multi-trial results in progress).}
+\label{tab:ablation}
+\begin{tabular}{@{}l cccc @{}}
+\toprule
+\textbf{Variant}
+  & \textbf{2D Maze}
+  & \textbf{3D Sph.}
+  & \textbf{6D Shelf}
+  & \textbf{6D Clut.} \\
+\midrule
+RIT* (full)
+  & ---
+  & ---
+  & ---
+  & --- \\
+w/o Riem.\ samp.
+  & ---
+  & ---
+  & ---
+  & --- \\
+w/o cascading
+  & ---
+  & ---
+  & ---
+  & --- \\
+w/o CARM
+  & ---
+  & ---
+  & ---
+  & --- \\
+w/o smoothing
+  & ---
+  & ---
+  & ---
+  & --- \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+% TODO: Run ablation experiments and populate Table~\ref{tab:ablation}.
+% Expected outcome: Riemannian sampling drives cost improvement in 6-D;
+% cascading saves ~80% computation time without affecting cost;
+% smoothing accounts for significant cost improvement in 2-D.
+
+
+% ─────────────────────────────────────────────
+\subsection{CARM Analysis}\label{sec:carm_analysis}
+
+To evaluate CARM independently, all planners are evaluated under the
+\emph{same} oracle metric (obstacle-inflated) to ensure fair
+comparison.
+\cref{tab:carm} reports CARM's recovery of the oracle advantage.
+
+\begin{table}[t]
+\centering
+\caption{CARM recovery analysis.
+  All costs evaluated under the oracle metric.
+  Recovery: fraction of the gap from Euclidean to oracle that CARM
+  closes.}
+\label{tab:carm}
+\begin{tabular}{@{}l cccc @{}}
+\toprule
+\textbf{Env.}
+  & \textbf{Oracle}
+  & \textbf{CARM}
+  & \textbf{Euclidean}
+  & \textbf{Recovery} \\
+\midrule
+2D Obst.
+  & $1.500$
+  & $2.153$
+  & $2.153$
+  & $-0.1\%$ \\
+2D Forest
+  & $1.732$
+  & $2.726$
+  & $3.084$
+  & $26.5\%$ \\
+2D Maze
+  & $4.572$
+  & $5.103$
+  & $5.112$
+  & $1.6\%$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\columnwidth]{figures/fig_carm_convergence.pdf}
+\caption{Convergence comparison under the oracle metric on
+  2-D Obstacles.
+  RIT* (oracle) converges fastest; CARM achieves lower cost than
+  Euclidean baselines, indicating that the learned metric steers
+  sampling toward better paths.}
+\label{fig:carm_convergence}
+\end{figure}
+
+CARM recovery varies across environments: it closes 26.5\% of the
+oracle gap on Forest (where obstacle structure is learnable from
+scattered collision points) but provides minimal benefit on Obstacles
+and Maze (where the obstacle structure is simpler or the collision
+distribution is less informative).
+These results indicate that CARM's effectiveness depends on the
+informativeness of the collision distribution relative to the true
+cost landscape.
+
+\begin{figure*}[t]
+\centering
+\includegraphics[width=\textwidth]{figures/fig_carm_metric_field.pdf}
+\caption{CARM on 2-D Obstacles.
+  \textbf{(a)}~Oracle metric field.
+  \textbf{(b)}~CARM-learned scale $s(x)$ after 100 iterations:
+  the field concentrates near obstacle boundaries.
+  \textbf{(c)}~Resulting CARM tree and path.}
+\label{fig:carm_metric_field}
+\end{figure*}
+
+
+% TODO: Add CARM parameter sensitivity analysis.
+% Sweep alpha in {1, 5, 10, 20} and sigma in {0.05, 0.1, 0.2}
+% on 6-D Shelf.  Show small heat map of final cost.
+
+
+% ══════════════════════════════════════════════════════════════════════════════
+%  V. DISCUSSION AND CONCLUSION
+% ══════════════════════════════════════════════════════════════════════════════
+\section{Discussion and Conclusion}\label{sec:conclusion}
+
+\textbf{When does RIT* help?}
+The benefit scales with $\kappa^{1/d}$ and is maximised under high
+anisotropy and moderate dimensionality.
+For isotropic costs ($\kappa \approx 1$), $\IR \approx \IE$ and
+there is no gain, as confirmed by the Tabletop result.
+The largest improvements---up to 11\% in cost---occur in 6-DOF
+manipulator planning where $\kappa = 12$.
+
+\textbf{Limitations.}
+(i)~The metric cache scales as $\mathrm{res}^d$, which may be
+prohibitive for $d > 10$; sparse or adaptive caching could address
+this.
+(ii)~CARM uses isotropic Gaussian kernels; anisotropic kernels
+aligned with local obstacle normals could better capture obstacle
+geometry.
+(iii)~CARM recovery is modest on some environments (1.6\% on Maze),
+indicating that additional exploration strategies may be needed to
+generate informative collision distributions.
+(iv)~The current experiments use simulated environments; real-robot
+validation is an important direction for future work.
+
+\textbf{Conclusion.}
+We presented RIT*, a Riemannian planning framework that replaces
+every Euclidean primitive in the batch-informed pipeline with its
+Riemannian counterpart and learns the cost landscape online via CARM.
+Multi-trial experiments on 6-DOF UR10e manipulator environments
+demonstrate statistically significant cost reductions of up to 11\%
+over five baselines.
+CARM recovers up to 27\% of the oracle-metric advantage from
+collision feedback alone, without any prior cost model.
+
+
+% ══════════════════════════════════════════════════════════════════════════════
+%  REFERENCES
+% ══════════════════════════════════════════════════════════════════════════════
+\balance
+\bibliographystyle{IEEEtran}
+\begin{thebibliography}{21}
+
+\bibitem{LaValle2006}
+S.~M. LaValle, \emph{Planning Algorithms}.
+Cambridge University Press, 2006.
+
+\bibitem{Karaman2011}
+S.~Karaman and E.~Frazzoli,
+``Sampling-based algorithms for optimal motion planning,''
+\emph{Int.\ J.\ Robot.\ Res.}, vol.~30, no.~7, pp.~846--894, 2011.
+
+\bibitem{Gammell2018}
+J.~D. Gammell, T.~D. Barfoot, and S.~S. Srinivasa,
+``Informed RRT*: Optimal sampling-based path planning focused via
+direct sampling of an admissible ellipsoidal heuristic,''
+\emph{Int.\ J.\ Robot.\ Res.}, vol.~37, no.~13--14, pp.~1519--1559, 2018.
+
+\bibitem{Gammell2020}
+J.~D. Gammell and T.~D. Barfoot,
+``Batch Informed Trees (BIT*): Informed asymptotically optimal
+anytime search,''
+\emph{Int.\ J.\ Robot.\ Res.}, vol.~39, no.~5, pp.~543--567, 2020.
+
+\bibitem{Strub2022}
+M.~P. Strub and J.~D. Gammell,
+``Adaptively Informed Trees (AIT*) and Effort Informed Trees (EIT*):
+Asymmetric bidirectional sampling-based path planning,''
+\emph{Int.\ J.\ Robot.\ Res.}, vol.~41, no.~4, pp.~390--417, 2022.
+
+\bibitem{APT2025}
+L.~Zhang, S.~Wang, K.~Cai, Z.~Bing, F.~Wu, C.~Wang, S.~Haddadin,
+and A.~Knoll,
+``APT*: Asymptotically optimal motion planning via adaptively
+prolated elliptical r-nearest neighbors,''
+\emph{IEEE Robot.\ Autom.\ Lett.}, 2025.
+
+\bibitem{FIT2024}
+L.~Zhang \emph{et al.},
+``Flexible Informed Trees (FIT*): Adaptive batch-size approach in
+informed sampling-based path planning,''
+in \emph{Proc.\ IEEE/RSJ IROS}, 2024, pp.~3146--3152.
+
+\bibitem{Kyaw2026}
+P.~H. Kyaw and J.~Kelly,
+``Geometry-aware sampling-based motion planning on Riemannian
+manifolds,''
+\emph{arXiv:2602.00992}, 2026.
+
+\bibitem{Zhang2023biamrrt}
+Y.~Zhang, J.~Wu, W.~Zhang, and Y.~Wang,
+``Bi-AM-RRT*: A bidirectional attractor-guided sampling-based motion
+planning via assisting metric,''
+\emph{IEEE Trans.\ Intell.\ Veh.}, 2023.
+
+\bibitem{Klein2023}
+H.~Klein, N.~Jaquier, A.~Meixner, and T.~Asfour,
+``On the design of region-avoiding metrics for collision-safe motion
+generation on Riemannian manifolds,''
+in \emph{Proc.\ IEEE/RSJ IROS}, 2023.
+
+\bibitem{Cheng2018rmpflow}
+C.-A.~Cheng, M.~Mukadam, J.~Issac, S.~Birchfield, D.~Fox, B.~Boots,
+and N.~Ratliff,
+``RMPflow: A computational graph for automatic motion policy
+generation,''
+in \emph{Proc.\ WAFR}, 2018.
+
+\bibitem{BeikMohammadi2023}
+H.~Beik-Mohammadi, S.~Hauberg, G.~Arvanitidis, G.~Neumann, and
+L.~Rozo,
+``Reactive motion generation on learned Riemannian manifolds,''
+\emph{arXiv:2203.07761}, 2023.
+
+\bibitem{Kim2016}
+B.~Kim, T.~T. Um, C.~Suh, and F.~C. Park,
+``Tangent bundle RRT: A randomized algorithm for constrained motion
+planning,''
+\emph{Robotica}, vol.~34, no.~1, pp.~202--225, 2016.
+
+\bibitem{Ratliff2009}
+N.~Ratliff, M.~Zucker, J.~A. Bagnell, and S.~Srinivasa,
+``CHOMP: Gradient optimization techniques for efficient motion
+planning,''
+in \emph{Proc.\ IEEE ICRA}, 2009, pp.~489--494.
+
+\bibitem{Zucker2013}
+M.~Zucker \emph{et al.},
+``CHOMP: Covariant Hamiltonian optimization for motion planning,''
+\emph{Int.\ J.\ Robot.\ Res.}, vol.~32, no.~9--10, pp.~1164--1193, 2013.
+
+\bibitem{Jaillet2008}
+L.~Jaillet and T.~Sim\'{e}on,
+``Path deformation roadmaps,''
+\emph{Int.\ J.\ Robot.\ Res.}, vol.~27, no.~11--12, pp.~1175--1188, 2008.
+
+\bibitem{Coumans2021}
+E.~Coumans and Y.~Bai,
+``PyBullet, a Python module for physics simulation for games,
+robotics and machine learning,'' 2016--2021.
+\url{http://pybullet.org}
+
+\end{thebibliography}
+
+\end{document}

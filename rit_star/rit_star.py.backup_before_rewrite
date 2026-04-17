@@ -1,0 +1,1652 @@
+"""
+rit_star.py — Core RIT* (Riemannian Informed Trees) planner.
+
+RIT* is a BIT*-style batch-informed planner that replaces the Euclidean
+informed set with a Riemannian geodesic ball.  In each iteration a batch
+of samples is drawn from I_R, neighbours are connected within a shrinking
+radius, and the tree is rewired toward lower-cost paths.  Because
+Vol(I_R) < Vol(I_euclid) when G ≠ I, fewer samples are wasted and the
+planner converges faster (Theorem 3).
+
+Public interface
+----------------
+    planner = RITStar(x_start, x_goal, ...)
+    path, cost = planner.plan()
+    stats = planner.get_stats()
+"""
+
+from __future__ import annotations
+
+import inspect
+import time
+import heapq
+from collections import deque
+import numpy as np
+from scipy.spatial import KDTree
+from typing import Callable, List, Optional, Tuple
+
+try:
+    from numba import njit
+    _HAS_NUMBA = True
+except Exception:  # pragma: no cover - optional dependency
+    _HAS_NUMBA = False
+
+    def njit(*args, **kwargs):
+        def decorator(func):
+            return func
+        return decorator
+
+from .metric import RiemannianMetric, DiagonalAnisotropicMetric, EuclideanMetric
+from .metric import CollisionAdaptiveMetric
+from .geodesic import GeodesicComputer, diagonal_geodesic
+from .informed_set import RiemannianInformedSet, EuclideanInformedSet, volume_ratio_bound
+from .metric_cache import MetricFieldCache
+
+
+@njit(cache=True)
+def _single_edge_sample_count(x: np.ndarray, y: np.ndarray,
+                              n_checks: int, step_size: float) -> int:
+    length_sq = 0.0
+    for idx in range(x.shape[0]):
+        diff = y[idx] - x[idx]
+        length_sq += diff * diff
+    length = np.sqrt(length_sq)
+    if length < 1e-12:
+        return 1
+    if step_size > 0.0:
+        n = int(np.ceil(length / step_size))
+        if n < n_checks:
+            n = n_checks
+    else:
+        if x.shape[0] <= 2:
+            auto_step = 0.005
+        elif x.shape[0] == 3:
+            auto_step = 0.01
+        else:
+            auto_step = 0.02
+        n = int(np.ceil(length / auto_step))
+        if n < n_checks:
+            n = n_checks
+    return n + 1
+
+
+@njit(cache=True)
+def _single_edge_points(x: np.ndarray, y: np.ndarray,
+                        n_checks: int, step_size: float) -> np.ndarray:
+    n_pts = _single_edge_sample_count(x, y, n_checks, step_size)
+    pts = np.empty((n_pts, x.shape[0]), dtype=np.float64)
+    if n_pts == 1:
+        for dim in range(x.shape[0]):
+            pts[0, dim] = x[dim]
+        return pts
+    inv_n = 1.0 / (n_pts - 1)
+    for i in range(n_pts):
+        alpha = i * inv_n
+        for dim in range(x.shape[0]):
+            pts[i, dim] = x[dim] + alpha * (y[dim] - x[dim])
+    return pts
+
+
+@njit(cache=True)
+def _edge_batch_sample_counts(starts: np.ndarray, ends: np.ndarray,
+                              n_checks: int, step_size: float) -> np.ndarray:
+    counts = np.empty(starts.shape[0], dtype=np.int64)
+    for row in range(starts.shape[0]):
+        counts[row] = _single_edge_sample_count(starts[row], ends[row], n_checks, step_size)
+    return counts
+
+
+@njit(cache=True)
+def _edge_batch_offsets(counts: np.ndarray) -> Tuple[np.ndarray, int]:
+    offsets = np.empty(counts.shape[0], dtype=np.int64)
+    total = 0
+    for row in range(counts.shape[0]):
+        offsets[row] = total
+        total += counts[row]
+    return offsets, total
+
+
+@njit(cache=True)
+def _edge_batch_points(starts: np.ndarray, ends: np.ndarray,
+                       counts: np.ndarray, offsets: np.ndarray,
+                       total_points: int) -> np.ndarray:
+    pts = np.empty((total_points, starts.shape[1]), dtype=np.float64)
+    for row in range(starts.shape[0]):
+        count = counts[row]
+        base = offsets[row]
+        if count == 1:
+            for dim in range(starts.shape[1]):
+                pts[base, dim] = starts[row, dim]
+            continue
+        inv_n = 1.0 / (count - 1)
+        for step in range(count):
+            alpha = step * inv_n
+            out_idx = base + step
+            for dim in range(starts.shape[1]):
+                pts[out_idx, dim] = starts[row, dim] + alpha * (ends[row, dim] - starts[row, dim])
+    return pts
+
+
+@njit(cache=True)
+def _reduce_edge_batch_results(point_free: np.ndarray,
+                               counts: np.ndarray,
+                               offsets: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+    free_edges = np.ones(counts.shape[0], dtype=np.bool_)
+    first_hit = -np.ones(counts.shape[0], dtype=np.int64)
+    for row in range(counts.shape[0]):
+        start = offsets[row]
+        end = start + counts[row]
+        for idx in range(start, end):
+            if not point_free[idx]:
+                free_edges[row] = False
+                first_hit[row] = idx
+                break
+    return free_edges, first_hit
+
+
+@njit(cache=True)
+def _squared_distances(points: np.ndarray, query: np.ndarray) -> np.ndarray:
+    out = np.empty(points.shape[0], dtype=np.float64)
+    for row in range(points.shape[0]):
+        dist = 0.0
+        for dim in range(points.shape[1]):
+            delta = points[row, dim] - query[dim]
+            dist += delta * delta
+        out[row] = dist
+    return out
+
+
+def _transform_points(points: np.ndarray, scale: Optional[np.ndarray]) -> np.ndarray:
+    if scale is None:
+        return np.asarray(points, dtype=float)
+    return np.asarray(points, dtype=float) * scale
+
+
+def _transform_point(point: np.ndarray, scale: Optional[np.ndarray]) -> np.ndarray:
+    if scale is None:
+        return np.asarray(point, dtype=float)
+    return np.asarray(point, dtype=float) * scale
+
+
+class IncrementalKDTree:
+    """Exact KD-tree queries with append-only buffering between rebuilds."""
+
+    def __init__(self,
+                 dim: int,
+                 scale: Optional[np.ndarray] = None,
+                 rebuild_growth: float = 0.2,
+                 min_buffer: int = 16):
+        self.dim = dim
+        self.scale = None if scale is None else np.asarray(scale, dtype=float)
+        self.rebuild_growth = float(rebuild_growth)
+        self.min_buffer = int(max(1, min_buffer))
+        self.clear()
+
+    def clear(self) -> None:
+        self._tree: Optional[KDTree] = None
+        self._base_points = np.empty((0, self.dim), dtype=float)
+        self._buffer_points = np.empty((0, self.dim), dtype=float)
+        self._size = 0
+
+    def rebuild(self, points: np.ndarray) -> None:
+        transformed = _transform_points(points, self.scale)
+        self._base_points = transformed
+        self._buffer_points = np.empty((0, self.dim), dtype=float)
+        self._tree = KDTree(transformed) if len(transformed) else None
+        self._size = len(transformed)
+
+    def append(self, points: np.ndarray) -> bool:
+        if len(points) == 0:
+            return False
+        transformed = _transform_points(points, self.scale)
+        if len(self._buffer_points) == 0:
+            self._buffer_points = transformed
+        else:
+            self._buffer_points = np.vstack([self._buffer_points, transformed])
+        self._size += len(transformed)
+        base_n = max(len(self._base_points), 1)
+        rebuild_limit = max(self.min_buffer, int(np.ceil(base_n * self.rebuild_growth)))
+        return len(self._buffer_points) >= rebuild_limit
+
+    def query_ball_point(self, point: np.ndarray, radius: float) -> List[int]:
+        query = _transform_point(point, self.scale)
+        idxs: List[int] = []
+        if self._tree is not None:
+            idxs.extend(self._tree.query_ball_point(query, radius))
+        if len(self._buffer_points):
+            buffer_d2 = _squared_distances(self._buffer_points, query)
+            matches = np.where(buffer_d2 <= radius * radius)[0]
+            if len(matches):
+                idxs.extend((len(self._base_points) + matches).tolist())
+        return idxs
+
+    def query(self, point: np.ndarray) -> Tuple[float, int]:
+        query = _transform_point(point, self.scale)
+        best_dist = np.inf
+        best_idx = -1
+        if self._tree is not None:
+            dist, idx = self._tree.query(query)
+            best_dist = float(dist)
+            best_idx = int(idx)
+        if len(self._buffer_points):
+            buffer_d2 = _squared_distances(self._buffer_points, query)
+            local_idx = int(np.argmin(buffer_d2))
+            local_dist = float(np.sqrt(buffer_d2[local_idx]))
+            if local_dist < best_dist:
+                best_dist = local_dist
+                best_idx = len(self._base_points) + local_idx
+        return best_dist, best_idx
+
+
+def limit_neighbour_indices(vertices: List['Node'],
+                            idxs: List[int],
+                            sample: np.ndarray,
+                            max_neighbours: int) -> List[int]:
+    """Return the nearest neighbour indices to ``sample`` in original space."""
+    if len(idxs) <= max_neighbours:
+        return idxs
+    points = np.empty((len(idxs), sample.shape[0]), dtype=float)
+    for row, idx in enumerate(idxs):
+        points[row] = vertices[idx].x
+    dists = _squared_distances(points, sample)
+    keep = np.argpartition(dists, max_neighbours - 1)[:max_neighbours]
+    keep = keep[np.argsort(dists[keep])]
+    return [idxs[int(row)] for row in keep]
+
+
+def _batch_rect_collision_checker(rects, bounds):
+    lo = np.array([b[0] for b in bounds], dtype=float)
+    hi = np.array([b[1] for b in bounds], dtype=float)
+    rect_lo = np.array([r[0] for r in rects], dtype=float)
+    rect_hi = np.array([r[1] for r in rects], dtype=float)
+
+    def batch_eval(points: np.ndarray) -> np.ndarray:
+        pts = np.asarray(points, dtype=float)
+        in_bounds = np.all((pts >= lo) & (pts <= hi), axis=1)
+        inside = np.zeros(len(pts), dtype=bool)
+        for r_lo, r_hi in zip(rect_lo, rect_hi):
+            inside |= np.all((pts >= r_lo) & (pts <= r_hi), axis=1)
+        return in_bounds & ~inside
+
+    return batch_eval
+
+
+def _batch_box_collision_checker(obs_list, bounds):
+    lo = np.array([b[0] for b in bounds], dtype=float)
+    hi = np.array([b[1] for b in bounds], dtype=float)
+    box_lo = np.array([r[0] for r in obs_list], dtype=float)
+    box_hi = np.array([r[1] for r in obs_list], dtype=float)
+
+    def batch_eval(points: np.ndarray) -> np.ndarray:
+        pts = np.asarray(points, dtype=float)
+        in_bounds = np.all((pts >= lo) & (pts <= hi), axis=1)
+        inside = np.zeros(len(pts), dtype=bool)
+        for b_lo, b_hi in zip(box_lo, box_hi):
+            inside |= np.all((pts >= b_lo) & (pts <= b_hi), axis=1)
+        return in_bounds & ~inside
+
+    return batch_eval
+
+
+def _batch_ball_collision_checker(centres: np.ndarray,
+                                  radii: np.ndarray,
+                                  bounds) -> Callable[[np.ndarray], np.ndarray]:
+    lo = np.array([b[0] for b in bounds], dtype=float)
+    hi = np.array([b[1] for b in bounds], dtype=float)
+    centres = np.asarray(centres, dtype=float)
+    radii_sq = np.asarray(radii, dtype=float) ** 2
+
+    def batch_eval(points: np.ndarray) -> np.ndarray:
+        pts = np.asarray(points, dtype=float)
+        in_bounds = np.all((pts >= lo) & (pts <= hi), axis=1)
+        diff = pts[:, None, :] - centres[None, :, :]
+        d2 = np.sum(diff * diff, axis=2)
+        inside = np.any(d2 <= radii_sq[None, :], axis=1)
+        return in_bounds & ~inside
+
+    return batch_eval
+
+
+def resolve_collision_batch_evaluator(collision_free: Callable,
+                                      bounds: Optional[list] = None) -> Optional[Callable[[np.ndarray], np.ndarray]]:
+    """Best-effort vectorized collision checker for common analytic environments."""
+    batch_eval = getattr(collision_free, "batch_eval", None)
+    if callable(batch_eval):
+        return batch_eval
+    if getattr(collision_free, "_batch_eval_unavailable", False):
+        return None
+    if bounds is None:
+        return None
+    try:
+        nonlocals = inspect.getclosurevars(collision_free).nonlocals
+    except Exception:
+        setattr(collision_free, "_batch_eval_unavailable", True)
+        return None
+
+    batch_eval = None
+    if "rects" in nonlocals:
+        batch_eval = _batch_rect_collision_checker(nonlocals["rects"], bounds)
+    elif "obs_list" in nonlocals:
+        batch_eval = _batch_box_collision_checker(nonlocals["obs_list"], bounds)
+    elif "circles" in nonlocals:
+        circles = nonlocals["circles"]
+        centres = np.array([c for c, _ in circles], dtype=float)
+        radii = np.array([r for _, r in circles], dtype=float)
+        batch_eval = _batch_ball_collision_checker(centres, radii, bounds)
+    elif "sphere_centres" in nonlocals:
+        radius = None
+        if "r_obs" in nonlocals:
+            radius = float(nonlocals["r_obs"])
+        elif "obs_r" in nonlocals:
+            radius = float(nonlocals["obs_r"])
+        if radius is not None:
+            centres = np.asarray(nonlocals["sphere_centres"], dtype=float)
+            radii = np.full(len(centres), radius, dtype=float)
+            batch_eval = _batch_ball_collision_checker(centres, radii, bounds)
+
+    if batch_eval is None:
+        setattr(collision_free, "_batch_eval_unavailable", True)
+        return None
+    setattr(collision_free, "batch_eval", batch_eval)
+    return batch_eval
+
+
+def batch_check_edges_collision(starts: np.ndarray,
+                                ends: np.ndarray,
+                                collision_free: Callable,
+                                bounds: Optional[list] = None,
+                                n_checks: int = 5,
+                                step_size: float = 0.0,
+                                want_feedback: bool = False) -> Tuple[np.ndarray, List[Optional[np.ndarray]]]:
+    """Check multiple straight-line edges exactly, using a vectorized point test when available."""
+    n_edges = len(starts)
+    if n_edges == 0:
+        return np.empty(0, dtype=bool), []
+
+    batch_eval = resolve_collision_batch_evaluator(collision_free, bounds=bounds)
+    if batch_eval is None:
+        results = np.empty(n_edges, dtype=bool)
+        feedback: List[Optional[np.ndarray]] = [None] * n_edges
+        for idx in range(n_edges):
+            if want_feedback:
+                results[idx], feedback[idx] = check_edge_collision_with_feedback(
+                    starts[idx], ends[idx], collision_free,
+                    n_checks=n_checks, step_size=step_size)
+            else:
+                results[idx] = check_edge_collision(
+                    starts[idx], ends[idx], collision_free,
+                    n_checks=n_checks, step_size=step_size)
+        return results, feedback
+
+    starts = np.asarray(starts, dtype=float)
+    ends = np.asarray(ends, dtype=float)
+    counts = _edge_batch_sample_counts(starts, ends, n_checks, step_size)
+    offsets, total_points = _edge_batch_offsets(counts)
+    pts = _edge_batch_points(starts, ends, counts, offsets, total_points)
+    point_free = np.asarray(batch_eval(pts), dtype=bool)
+    free_edges, first_hit = _reduce_edge_batch_results(point_free, counts, offsets)
+    feedback = [None] * n_edges
+    if want_feedback:
+        for idx, point_idx in enumerate(first_hit):
+            if point_idx >= 0:
+                feedback[idx] = pts[int(point_idx)].copy()
+    return free_edges, feedback
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Utility: edge cost via Gaussian quadrature
+# ═══════════════════════════════════════════════════════════════════════
+
+# Pre-compute Gauss-Legendre nodes/weights once (mapped to [0,1]).
+_GL_NODES_10, _GL_WEIGHTS_10 = np.polynomial.legendre.leggauss(10)
+_GL_TS = 0.5 * (_GL_NODES_10 + 1.0)
+_GL_WS = 0.5 * _GL_WEIGHTS_10
+
+
+def riemannian_edge_cost(x: np.ndarray, y: np.ndarray,
+                         metric: RiemannianMetric,
+                         n_quad: int = 10) -> float:
+    """Riemannian arc-length along the straight-line segment [x, y].
+
+    c(x,y) = ∫₀¹ √( ẋ(t)ᵀ G(x(t)) ẋ(t) ) dt
+
+    approximated with *n_quad*-point Gaussian quadrature.
+    For spatially-constant metrics (Euclidean, DiagonalAnisotropic)
+    the integral is computed in closed form for speed.
+
+    Parameters
+    ----------
+    x, y : (d,) arrays
+    metric : RiemannianMetric
+    n_quad : int
+        Number of Gauss–Legendre quadrature points (default 10).
+
+    Returns
+    -------
+    float
+        Riemannian traversal cost along the segment.
+
+    Notes
+    -----
+    This is the *actual* edge cost used in the search tree — not the
+    geodesic heuristic.  The distinction matters for spatially-varying
+    metrics where the straight line is not a geodesic.
+    """
+    diff = y - x
+    # Fast path: constant metrics — integrand is constant, integral = integrand.
+    if isinstance(metric, EuclideanMetric):
+        return float(np.sqrt(diff @ diff))
+    if isinstance(metric, DiagonalAnisotropicMetric):
+        w = metric._weights
+        return float(np.sqrt(diff @ (w * diff)))
+
+    # General case: Gaussian quadrature
+    cost = 0.0
+    for t, w in zip(_GL_TS, _GL_WS):
+        pt = x + t * diff
+        Gpt = metric.G(pt)
+        integrand = np.sqrt(max(float(diff @ Gpt @ diff), 0.0))
+        cost += w * integrand
+    return cost
+
+
+def _fast_edge_cost(x: np.ndarray, y: np.ndarray,
+                    metric: RiemannianMetric) -> float:
+    """Fast 1-point midpoint edge cost estimate.
+
+    Uses a single metric evaluation at the midpoint instead of 10-point
+    quadrature.  Sufficient for neighbor ranking and filtering.
+    """
+    diff = y - x
+    if isinstance(metric, EuclideanMetric):
+        return float(np.sqrt(diff @ diff))
+    if isinstance(metric, DiagonalAnisotropicMetric):
+        w = metric._weights
+        return float(np.sqrt(diff @ (w * diff)))
+    mid = 0.5 * (x + y)
+    Gm = metric.G(mid)
+    return float(np.sqrt(max(float(diff @ Gm @ diff), 0.0)))
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Collision checking helpers
+# ═══════════════════════════════════════════════════════════════════════
+
+def check_edge_collision(x: np.ndarray, y: np.ndarray,
+                         collision_free: Callable, n_checks: int = 5,
+                         step_size: float = 0.0) -> bool:
+    """Return True if the straight-line edge [x, y] is collision-free.
+
+    Parameters
+    ----------
+    x, y : (d,) arrays
+    collision_free : callable  x -> bool  (True = free)
+    n_checks : int
+        Minimum number of interpolation points.
+    step_size : float
+        Maximum distance between consecutive checks. If 0 (default),
+        auto-selects based on edge length: n_checks for short edges,
+        up to 2*n_checks for long edges.
+
+    Returns
+    -------
+    bool
+        True if all interpolation points are free.
+    """
+    pts = _single_edge_points(np.asarray(x, dtype=float),
+                              np.asarray(y, dtype=float),
+                              n_checks, step_size)
+    for pt in pts:
+        if not collision_free(pt):
+            return False
+    return True
+
+
+def check_edge_collision_adaptive(x: np.ndarray, y: np.ndarray,
+                                  collision_free: Callable,
+                                  coarse_step: float = 0.05,
+                                  fine_step: float = 0.01,
+                                  n_min: int = 3) -> bool:
+    """Adaptive-resolution collision check: coarse pass then local refinement.
+
+    First checks at coarse resolution.  If the coarse pass finds a
+    collision, returns False immediately.  If it passes, refines only
+    the sub-segments whose midpoints are close to obstacle boundaries
+    (detected via a free→occupied transition in the coarse grid).
+    """
+    diff = y - x
+    length = float(np.linalg.norm(diff))
+    if length < 1e-12:
+        return collision_free(x)
+    n_coarse = max(n_min, int(np.ceil(length / coarse_step)))
+    # Coarse pass
+    prev_free = collision_free(x)
+    if not prev_free:
+        return False
+    for i in range(1, n_coarse + 1):
+        t = i / n_coarse
+        pt = x + t * diff
+        cur_free = collision_free(pt)
+        if not cur_free:
+            return False
+        prev_free = cur_free
+    # All coarse points free — do fine refinement on full edge
+    n_fine = max(n_min, int(np.ceil(length / fine_step)))
+    if n_fine <= n_coarse:
+        return True
+    for i in range(1, n_fine):
+        t = i / n_fine
+        pt = x + t * diff
+        if not collision_free(pt):
+            return False
+    return True
+
+
+def check_edge_collision_with_feedback(
+        x: np.ndarray, y: np.ndarray,
+        collision_free: Callable,
+        n_checks: int = 5,
+        step_size: float = 0.0) -> Tuple[bool, Optional[np.ndarray]]:
+    """Edge collision check that returns the collision point.
+
+    Same logic as ``check_edge_collision`` but additionally returns
+    the first interpolation point found in collision so it can be
+    fed back to an adaptive metric.
+
+    Returns
+    -------
+    (is_free, collision_point)
+        is_free : bool — True if all interpolation points are free.
+        collision_point : (d,) array or None — first point in collision.
+    """
+    pts = _single_edge_points(np.asarray(x, dtype=float),
+                              np.asarray(y, dtype=float),
+                              n_checks, step_size)
+    for pt in pts:
+        if not collision_free(pt):
+            return False, pt.copy()
+    return True, None
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Node
+# ═══════════════════════════════════════════════════════════════════════
+
+class Node:
+    """A vertex in the search tree.
+
+    Attributes
+    ----------
+    x : (d,) ndarray — configuration
+    cost : float — cost-to-come from start
+    parent : Node or None
+    children : list[Node]
+    heuristic : float — precomputed h_R(x, x_goal)
+    f_value : float — cost + heuristic (for priority ordering)
+    """
+
+    __slots__ = ('x', 'cost', 'parent', 'children', 'heuristic', 'f_value')
+
+    def __init__(self, x: np.ndarray, cost: float = np.inf):
+        self.x = np.asarray(x, dtype=float)
+        self.cost = cost
+        self.parent: Optional[Node] = None
+        self.children: List[Node] = []
+        self.heuristic: float = 0.0
+        self.f_value: float = np.inf
+
+    def __lt__(self, other):
+        return self.f_value < other.f_value
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# RIT* planner
+# ═══════════════════════════════════════════════════════════════════════
+
+class RITStar:
+    """Riemannian Informed Trees (RIT*) planner.
+
+    Parameters
+    ----------
+    x_start, x_goal : (d,) arrays
+    c_space_bounds : list of (min, max) per dimension
+    collision_checker : callable  x -> bool  (True = free)
+    metric : RiemannianMetric
+    geodesic_tier : str
+    batch_size : int
+    max_iterations : int
+    connection_radius_factor : float
+    prune_threshold : float
+    random_seed : int
+    adaptive_metric : bool
+        Enable Collision-Adaptive Riemannian Metric (CARM).
+        When True, the planner wraps the given metric in a
+        CollisionAdaptiveMetric and feeds collision feedback
+        to it during planning, periodically rebuilding the
+        metric cache.
+    carm_sigma : float
+        Gaussian kernel bandwidth for CARM (default 0.1).
+    carm_alpha : float
+        Penalty strength for CARM (default 5.0).
+    carm_rebuild_interval : int
+        Rebuild the metric cache every N iterations when metric
+        has changed (default 20).
+    """
+
+    def __init__(self,
+                 x_start: np.ndarray,
+                 x_goal: np.ndarray,
+                 c_space_bounds: list,
+                 collision_checker: Callable,
+                 metric: RiemannianMetric,
+                 geodesic_tier: str = 'diagonal',
+                 batch_size: int = 200,
+                 max_iterations: int = 500,
+                 connection_radius_factor: float = 1.1,
+                 prune_threshold: float = 1.05,
+                 random_seed: int = 0,
+                 adaptive_metric: bool = False,
+                 carm_sigma: float = 0.1,
+                 carm_alpha: float = 5.0,
+                 carm_rebuild_interval: int = 20):
+
+        self.x_start = np.asarray(x_start, dtype=float)
+        self.x_goal = np.asarray(x_goal, dtype=float)
+        self.dim = len(self.x_start)
+        self.bounds = [(float(lo), float(hi)) for lo, hi in c_space_bounds]
+        self.collision_free = collision_checker
+        self.batch_size = batch_size
+        self.max_iterations = max_iterations
+        self.r_factor = connection_radius_factor
+        self.prune_thresh = prune_threshold
+        self.rng = np.random.default_rng(random_seed)
+
+        # ── CARM: Collision-Adaptive Riemannian Metric ────────────────
+        self._adaptive_mode = adaptive_metric
+        self._carm_rebuild_interval = carm_rebuild_interval
+        self._carm_last_update_count = 0
+        if adaptive_metric:
+            self._carm = CollisionAdaptiveMetric(
+                metric, len(self.x_start),
+                sigma=carm_sigma, alpha=carm_alpha)
+            self.metric = self._carm
+        else:
+            self._carm = None
+            self.metric = metric
+
+        # ── Contribution 1: Metric Tensor Field Cache ────────────────
+        # Adaptive resolution: 32 for 2D/3D, but scale down for higher
+        # dimensions to avoid memory explosion (res^d grid points).
+        cache_res = max(3, min(32, int(5e5 ** (1.0 / self.dim))))
+        self._mc = MetricFieldCache(self.metric, self.bounds, resolution=cache_res)
+        self._cache_res = cache_res
+
+        # Create GeodesicComputer AFTER cache for accurate conformal geodesics
+        self.gc = GeodesicComputer(self.metric, tier=geodesic_tier,
+                                    bounds=self.bounds, metric_cache=self._mc)
+
+        # Tree
+        self.start_node = Node(self.x_start, cost=0.0)
+        self.start_node.heuristic = self._mc.heuristic(self.x_start, self.x_goal)
+        self.start_node.f_value = self.start_node.heuristic
+
+        self.goal_node: Optional[Node] = None
+        self.vertices: List[Node] = [self.start_node]
+        self.c_best = np.inf
+
+        # Stats
+        self._stats: list = []
+        self._t0 = 0.0
+
+        # Informed set (initialized to None; built when c_best < inf)
+        self._informed_set: Optional[RiemannianInformedSet] = None
+
+        # ── Contribution 2: Whitened Informed Sampling ────────────────
+        # For conformal metrics (G = s(x)·I), whitening is a uniform
+        # scale that can make the ellipsoid degenerate — use standard
+        # Euclidean ellipsoid instead.  Whitening only helps anisotropic
+        # metrics where G_avg has different eigenvalues per dimension.
+        self._use_whitening = not self._mc._is_conformal and not self._mc._is_euclidean
+        if self._use_whitening:
+            G_avg = self._mc.avg_metric_along(self.x_start, self.x_goal, n=5)
+            self._L_whiten = np.linalg.cholesky(G_avg)
+            self._L_inv_whiten = np.linalg.inv(self._L_whiten)
+            self._ws = self._L_whiten @ self.x_start
+            self._wg = self._L_whiten @ self.x_goal
+        else:
+            self._L_whiten = None
+            self._L_inv_whiten = None
+            self._ws = None
+            self._wg = None
+        self._whitened_eis: Optional[EuclideanInformedSet] = None
+        self._euclid_eis: Optional[EuclideanInformedSet] = None
+        lo = np.array([b[0] for b in self.bounds])
+        hi = np.array([b[1] for b in self.bounds])
+        self._bounds_lo = lo
+        self._bounds_hi = hi
+
+        # Precompute volume of unit ball in R^d
+        from scipy.special import gamma as gamma_fn
+        self._zeta_d = (np.pi ** (self.dim / 2.0)) / gamma_fn(self.dim / 2.0 + 1.0)
+
+        # KD-tree transform for diagonal metrics
+        self._use_weighted_kd = isinstance(metric, DiagonalAnisotropicMetric)
+        if self._use_weighted_kd:
+            self._sqrt_w = np.sqrt(metric.weights)
+            self._w = np.asarray(metric.weights, dtype=float)
+        else:
+            self._sqrt_w = np.ones(self.dim)
+            self._w = None
+
+        self._kd_index = IncrementalKDTree(
+            self.dim,
+            scale=self._sqrt_w if self._use_weighted_kd else None,
+            rebuild_growth=0.2,
+            min_buffer=max(16, self.batch_size // 2),
+        )
+        self._kd_n_verts = 0
+        self._collision_batch_size = 8
+
+        # Bridge sampling state for narrow-passage detection
+        self._stall_count = 0
+        self._last_c_best = np.inf
+        self._stall_threshold = 5 + self.dim  # more patience in high-D
+        self._bridge_fraction = 0.3  # fraction of batch for bridge samples
+
+        # ── Contribution 4: Dimension-Adaptive Early Stopping ─────────
+        # Higher dimensions need more iterations to converge, so we
+        # scale the convergence window and tighten the tolerance.
+        self._early_stop_window = 40 + 12 * max(0, self.dim - 2)
+        self._best_cost_window: deque = deque(maxlen=self._early_stop_window)
+        self._early_stop_tol = max(0.0002, 0.001 / self.dim)
+        # Minimum iterations before early stopping is allowed.
+        # Gives the tree enough time to explore and refine.
+        self._min_iterations = max(80, self.max_iterations // 2)
+        if self.dim <= 2:
+            self._postprocess_collision_step = 0.005
+        elif self.dim == 3:
+            self._postprocess_collision_step = 0.01
+        else:
+            self._postprocess_collision_step = 0.02
+
+        # ── Contribution 5: Adaptive Oversampling Factor ──────────────
+        # Track whitened-sampling acceptance rate and dynamically adjust
+        # the oversampling multiplier so bounds-clipping losses in
+        # high-D are compensated.
+        self._whiten_accept_rate = 1.0
+        self._whiten_oversample = 1.0 + 0.15 * self.dim  # initial guess
+
+    # ── public API ───────────────────────────────────────────────────
+
+    def plan(self) -> Tuple[List[np.ndarray], float]:
+        """Run the RIT* planning loop.
+
+        Returns
+        -------
+        path : list of (d,) arrays from start to goal, or empty if no
+               solution found.
+        cost : float — final best cost (inf if unsolved).
+
+        Notes
+        -----
+        Implements Algorithm 1 of the RIT* paper: batched informed
+        sampling → extend → rewire → prune, repeating until
+        max_iterations.
+        """
+        self._t0 = time.time()
+        for it in range(self.max_iterations):
+            samples = self._sample_batch(it)
+            self._extend_tree(samples, it)
+            if self.c_best < np.inf:
+                self._prune()
+                self._update_informed_set()
+            # CARM: rebuild metric cache when enough new collision data
+            if self._adaptive_mode:
+                self._maybe_rebuild_carm_cache(it)
+            elapsed = time.time() - self._t0
+            self._record_stats(it, elapsed)
+
+        path = self._extract_path()
+        # Recompute exact final cost using original metric (not cache)
+        if path and len(path) > 1:
+            exact = sum(riemannian_edge_cost(path[i], path[i+1], self.metric)
+                        for i in range(len(path) - 1))
+            self.c_best = exact
+            if self._stats:
+                self._stats[-1]['c_best'] = exact
+        return path, self.c_best
+
+    def plan_stepwise(self):
+        """Generator that yields tree state after each iteration.
+
+        Yields
+        ------
+        dict with keys: iteration, vertices (list of Node), edges
+        (list of (parent_x, child_x) tuples), path (list of arrays or []),
+        c_best (float).
+        """
+        self._t0 = time.time()
+        for it in range(self.max_iterations):
+            samples = self._sample_batch(it)
+            self._extend_tree(samples, it)
+            if self.c_best < np.inf:
+                self._prune()
+                self._update_informed_set()
+                self._update_stall_counter()
+            # CARM: rebuild metric cache when enough new collision data
+            if self._adaptive_mode:
+                self._maybe_rebuild_carm_cache(it)
+            elapsed = time.time() - self._t0
+            self._record_stats(it, elapsed)
+
+            edges = []
+            for v in self.vertices:
+                if v.parent is not None:
+                    edges.append((v.parent.x.copy(), v.x.copy()))
+            path = self._extract_path()
+            yield {
+                'iteration': it,
+                'vertices': [v.x.copy() for v in self.vertices],
+                'edges': edges,
+                'path': path,
+                'c_best': self.c_best,
+            }
+
+        # Recompute exact final cost
+        path = self._extract_path()
+        if path and len(path) > 1:
+            exact = sum(riemannian_edge_cost(path[i], path[i+1], self.metric)
+                        for i in range(len(path) - 1))
+            self.c_best = exact
+            if self._stats:
+                self._stats[-1]['c_best'] = exact
+
+    def get_stats(self) -> list:
+        """Per-iteration statistics for plotting.
+
+        Returns
+        -------
+        list of dict with keys: iteration, n_vertices, c_best,
+        informed_set_volume, euclidean_set_volume, volume_ratio,
+        acceptance_rate, time_elapsed, n_samples_total.
+        """
+        return self._stats
+
+    def _fast_heuristic(self, x: np.ndarray) -> float:
+        """Admissible Riemannian heuristic to goal via cached metric.
+
+        Uses the L1 midpoint estimate from the metric field cache,
+        which is tighter than Euclidean distance for non-identity
+        metrics and produces better pruning and f-value ordering.
+        """
+        return self._mc.heuristic(x, self.x_goal)
+
+    # ── internal: sampling ───────────────────────────────────────────
+
+    def _sample_batch(self, iteration: int = 0) -> np.ndarray:
+        """Draw a batch of samples (Contribution 2: Whitened Informed Sampling).
+
+        For anisotropic metrics: sample from a Euclidean ellipsoid in the
+        whitened (metric-adapted) space, then transform back — rejection-free.
+        For conformal/Euclidean metrics: sample from standard Euclidean
+        ellipsoid directly (whitening offers no benefit for isotropic G).
+        Before c_best is found: sample uniformly from C_space.
+        Always include x_goal in every batch.
+
+        When the planner stalls (no improvement for K iterations),
+        bridge sampling is mixed in to bias towards narrow passages.
+
+        Returns
+        -------
+        (batch_size, d) array
+        """
+        n = self.batch_size - 1  # reserve one slot for goal
+
+        n_informed = n
+
+        if self.c_best < np.inf and self._use_whitening and self._whitened_eis is not None:
+            # Anisotropic: whitened ellipsoid sampling with adaptive
+            # oversampling (Contribution 5).  Track acceptance rate and
+            # increase the oversampling factor when bounds clipping
+            # discards many proposals.
+            n_draw = int(n_informed * self._whiten_oversample)
+            pts_w = self._whitened_eis.sample(n_draw, rng=self.rng)
+            pts = (self._L_inv_whiten @ pts_w.T).T
+            in_bounds = np.all(
+                (pts >= self._bounds_lo) & (pts <= self._bounds_hi),
+                axis=1)
+            pts = pts[in_bounds]
+            # Update adaptive oversampling factor
+            rate = len(pts) / max(n_draw, 1)
+            self._whiten_accept_rate = 0.8 * self._whiten_accept_rate + 0.2 * rate
+            if self._whiten_accept_rate > 0.05:
+                self._whiten_oversample = min(
+                    1.0 / self._whiten_accept_rate + 0.2, 5.0)
+            if len(pts) < n_informed:
+                extra = self.rng.uniform(
+                    self._bounds_lo, self._bounds_hi,
+                    size=(n_informed - len(pts), self.dim))
+                pts = np.vstack([pts, extra]) if len(pts) > 0 else extra
+            else:
+                pts = pts[:n_informed]
+        elif self.c_best < np.inf and self._euclid_eis is not None:
+            # Conformal / Euclidean: standard ellipsoid sampling
+            pts = self._euclid_eis.sample(n_informed, rng=self.rng)
+        else:
+            pts = self.rng.uniform(
+                self._bounds_lo, self._bounds_hi, size=(n_informed, self.dim))
+
+        return np.vstack([pts, self.x_goal.reshape(1, -1)])
+
+    def _generate_bridge_samples(self, n: int) -> np.ndarray:
+        """Generate stall-recovery samples (Contribution 6: Path-Guided
+        Stall Recovery).
+
+        When the planner stalls, instead of purely random bridge sampling
+        (which has vanishing acceptance in high dimensions), bias samples
+        toward the current best path.  This exploits the fact that
+        improvements are most likely *near* the existing solution.
+
+        Strategy:
+          - 60% path-guided: Gaussian noise around random waypoints on
+            the current best path (exploits solution topology).
+          - 40% bridge: classical collision-midpoint sampling (explores
+            narrow passages not on the current path).
+
+        In d >= 4 the bridge fraction is reduced further because its
+        acceptance rate drops exponentially.
+        """
+        path = self._extract_path()
+        n_path_guided = int(n * 0.6) if (path and len(path) >= 2) else 0
+        # In very high dimensions, bias more heavily toward path-guided
+        if self.dim >= 4 and path and len(path) >= 2:
+            n_path_guided = int(n * 0.8)
+        n_bridge = n - n_path_guided
+
+        collected = []
+
+        # ── Path-guided samples ──────────────────────────────────────
+        if n_path_guided > 0 and path:
+            path_arr = np.array(path)
+            # Adaptive sigma: shrinks as c_best approaches c* estimate
+            base_sigma = 0.05 * np.mean(self._bounds_hi - self._bounds_lo)
+            for _ in range(n_path_guided * 3):
+                if len(collected) >= n_path_guided:
+                    break
+                # Pick random point along path (interpolated)
+                seg = self.rng.integers(0, len(path_arr) - 1)
+                t = self.rng.uniform()
+                base = (1 - t) * path_arr[seg] + t * path_arr[seg + 1]
+                pt = base + self.rng.normal(0, base_sigma, size=self.dim)
+                pt = np.clip(pt, self._bounds_lo, self._bounds_hi)
+                if self.collision_free(pt):
+                    collected.append(pt)
+
+        # ── Bridge samples (classical) ───────────────────────────────
+        sigma = 0.1 * np.mean(self._bounds_hi - self._bounds_lo)
+        attempts = 0
+        max_attempts = n_bridge * 20
+        while len(collected) < n_path_guided + n_bridge and attempts < max_attempts:
+            p1 = self.rng.uniform(self._bounds_lo, self._bounds_hi)
+            p2 = p1 + self.rng.normal(0, sigma, size=self.dim)
+            p2 = np.clip(p2, self._bounds_lo, self._bounds_hi)
+            mid = 0.5 * (p1 + p2)
+            if self.collision_free(mid):
+                if not self.collision_free(p1) or not self.collision_free(p2):
+                    collected.append(mid)
+                elif attempts > max_attempts // 2:
+                    collected.append(mid)
+            attempts += 1
+
+        if len(collected) < n:
+            extra = self.rng.uniform(
+                self._bounds_lo, self._bounds_hi,
+                size=(n - len(collected), self.dim))
+            if collected:
+                return np.vstack([np.array(collected), extra])
+            return extra
+        return np.array(collected[:n])
+
+    def _update_stall_counter(self):
+        """Track whether c_best is improving."""
+        if self.c_best < self._last_c_best - 1e-8:
+            self._stall_count = 0
+            self._last_c_best = self.c_best
+        else:
+            self._stall_count += 1
+
+    def _should_stop_early(self) -> bool:
+        """Return True if cost has converged (no meaningful improvement)."""
+        self._best_cost_window.append(self.c_best)
+        if len(self._best_cost_window) < self._early_stop_window:
+            return False
+        oldest = self._best_cost_window[0]
+        newest = self._best_cost_window[-1]
+        if oldest == np.inf or newest == np.inf:
+            return False
+        rel_improvement = (oldest - newest) / max(abs(oldest), 1e-12)
+        return rel_improvement < self._early_stop_tol
+
+    def _compute_connection_radius(self, n_vertices: int) -> float:
+        """Metric-adapted connection radius (Theorem 2).
+
+        r_n^R = gamma_R * (log(n)/n)^(1/d)
+
+        where gamma_R uses the Riemannian volume mu_R(I_R) instead of
+        Euclidean volume.  For the KD-tree query, the returned radius
+        is in the KD-tree's coordinate system (weighted for diagonal,
+        Euclidean otherwise).
+
+        This is the critical formula for the AO proof: too small ->
+        disconnected graph (not complete), too large -> O(n^2) edges.
+
+        Parameters
+        ----------
+        n_vertices : int
+
+        Returns
+        -------
+        float
+        """
+        n = max(n_vertices, 2)
+        d = self.dim
+
+        # Riemannian volume of informed set (or workspace if no solution)
+        if self.c_best < np.inf:
+            mu_R = self._riemannian_informed_volume()
+        else:
+            mu_R = self._riemannian_workspace_volume()
+
+        mu_R = max(mu_R, 1e-12)
+
+        # gamma_R from Theorem 2
+        gamma_R = 2.0 * ((1.0 + 1.0 / d) ** (1.0 / d)) * \
+                  ((mu_R / self._zeta_d) ** (1.0 / d))
+
+        r_R = self.r_factor * gamma_R * ((np.log(n) / n) ** (1.0 / d))
+
+        # Dimension-adaptive radius boost: in high-D the theoretical
+        # radius is often too small for practical finite-sample
+        # performance.  A mild multiplicative boost improves connectivity
+        # without breaking the AO guarantee (only affects finite time).
+        if d >= 4:
+            r_R *= 1.0 + 0.15 * (d - 3)
+
+        # Scale factor: if KD-tree uses weighted coords, radius is already
+        # in weighted space. Otherwise, convert Riemannian radius to Euclidean.
+        if self._use_weighted_kd:
+            # In weighted space, Riemannian distance ~ Euclidean distance
+            pass
+        else:
+            # For spatially-varying metrics, use min eigenvalue scaling
+            lam_min = self._mc.min_eigenvalue()
+            r_R = r_R / max(np.sqrt(lam_min), 1e-6)
+
+        # Clamp: upper bound at half diagonal, lower bound ensures
+        # connectivity in tight informed sets.
+        diag = np.sqrt(sum((hi - lo) ** 2 for lo, hi in self.bounds))
+        # Minimum radius: use the Euclidean equivalent so the tree can
+        # always grow through narrow passages / around obstacles.
+        if self._use_weighted_kd:
+            w_diag = np.sqrt(sum(
+                self._w[i] * (hi - lo) ** 2
+                for i, (lo, hi) in enumerate(self.bounds)))
+            r_min = 0.05 * w_diag
+        else:
+            r_min = 0.05 * diag
+        return max(min(r_R, diag * 0.5), r_min)
+
+    def _riemannian_informed_volume(self) -> float:
+        """Compute mu_R(I_R) = integral_{I_R} sqrt(det(G(x))) dx.
+
+        For diagonal metrics the Riemannian informed set I_R in
+        original space is L^{-1}(E_w) where E_w is the Euclidean
+        ellipsoid in whitened space with foci L·x_s, L·x_g.  Its
+        Riemannian volume reduces to Vol(E_w) (the sqrt(det) and
+        det(L^{-1}) cancel).
+
+        For conformal / Euclidean metrics: standard ellipsoid volume.
+        For spatially-varying: analytical bound via Theorem 1.
+        """
+        if isinstance(self.metric, EuclideanMetric):
+            return self._quick_volume()
+        if isinstance(self.metric, DiagonalAnisotropicMetric):
+            # Riemannian minimum distance (= Euclidean dist in whitened space)
+            w = np.asarray(self.metric._weights, dtype=float)
+            diff = self.x_goal - self.x_start
+            c_min_R = float(np.sqrt(np.dot(w * diff, diff)))
+            if c_min_R < 1e-12:
+                return 1e-12
+            c = max(self.c_best, c_min_R + 1e-8)
+            r1 = c / 2.0
+            r2 = np.sqrt(max(c ** 2 - c_min_R ** 2, 0.0)) / 2.0
+            return self._zeta_d * r1 * r2 ** (self.dim - 1)
+        # Spatially-varying: use Vol(I_R) = volume_ratio * Vol(I_E)
+        # as a practical estimate via Theorem 1.
+        euclid_vol = self._quick_volume()
+        vr = volume_ratio_bound(self.metric, self.x_start,
+                                self.x_goal, self.dim)
+        mid = 0.5 * (self.x_start + self.x_goal)
+        sqrt_det_mid = self.metric.sqrt_det_G(mid)
+        return sqrt_det_mid * vr * euclid_vol
+
+    def _riemannian_workspace_volume(self) -> float:
+        """Riemannian volume of the workspace.
+
+        For constant: sqrt(det(G)) * prod(hi-lo).
+        For varying: integrate sqrt(det(G)) over workspace (cached from grid).
+        """
+        return self._mc.riemannian_volume()
+
+    def _quick_volume(self) -> float:
+        """Euclidean informed-set volume estimate for radius computation."""
+        if self.c_best == np.inf:
+            return float(np.prod([hi - lo for lo, hi in self.bounds]))
+        c_euclid = float(np.linalg.norm(self.x_goal - self.x_start))
+        if c_euclid < 1e-12:
+            return 1e-12
+        # Use c_best as an upper bound on Euclidean path cost too
+        # (Riemannian cost >= Euclidean cost for w >= 1 metrics)
+        r1 = self.c_best / 2.0
+        r2 = np.sqrt(max(self.c_best ** 2 - c_euclid ** 2, 0.0)) / 2.0
+        return self._zeta_d * r1 * r2 ** (self.dim - 1)
+
+    # ── internal: tree extension ─────────────────────────────────────
+
+    def _build_kd_tree(self):
+        """Synchronize the incremental KD index with the current vertex list."""
+        n = len(self.vertices)
+        if n == 0:
+            self._kd_index.clear()
+            self._kd_n_verts = 0
+            return self._kd_index
+        if n < self._kd_n_verts:
+            coords = np.stack([v.x for v in self.vertices])
+            self._kd_index.rebuild(coords)
+            self._kd_n_verts = n
+            return self._kd_index
+        if n > self._kd_n_verts:
+            new_coords = np.stack([v.x for v in self.vertices[self._kd_n_verts:n]])
+            needs_rebuild = self._kd_index.append(new_coords)
+            self._kd_n_verts = n
+            if needs_rebuild:
+                coords = np.stack([v.x for v in self.vertices])
+                self._kd_index.rebuild(coords)
+        return self._kd_index
+
+    def _extend_tree(self, samples: np.ndarray, iteration: int = 0):
+        """Extend the search tree with new samples.
+
+        Uses Contribution 3: Cascading Lazy Edge Evaluation.
+          - Level 1 (midpoint) for candidate ranking & filtering
+          - Level 2 (Simpson's 3-pt) for actual tree edge costs
+          - Level 3 (Gauss-Legendre 10-pt) reserved for final path
+
+        Adaptive rewiring cap: increases from 15 in early iterations
+        to 30 as the tree matures.
+
+        Parameters
+        ----------
+        samples : (batch_size, d) array
+        iteration : int
+        """
+        mc = self._mc
+        kd = self._build_kd_tree()
+        r = self._compute_connection_radius(len(self.vertices) + len(samples))
+        max_neighbours = min(15 + iteration // 15 + 3 * max(0, self.dim - 3), 20 + 5 * self.dim)
+
+        c_best = self.c_best  # local alias for inner loop speed
+        collision_batch = self._collision_batch_size
+
+        for s in samples:
+            # Rebuild KD-tree every iteration so that newly added
+            # vertices are immediately discoverable by subsequent
+            # samples — critical for rewiring quality and smooth paths.
+            kd = self._build_kd_tree()
+            # ── Global f-value pre-filter: skip samples that cannot
+            # lie on a path cheaper than c_best ──
+            if c_best < np.inf:
+                h_s = mc.heuristic(s, self.x_goal)
+                h_s_start = mc.heuristic(self.x_start, s)
+                if h_s_start + h_s >= c_best:
+                    continue
+            else:
+                h_s = 0.0  # will be computed later if needed
+
+            if not self.collision_free(s):
+                # CARM: record the collision sample
+                if self._adaptive_mode:
+                    self._carm.add_collision_point(s)
+                continue
+
+            # Query neighbours
+            if self._use_weighted_kd:
+                q = s * self._sqrt_w
+            else:
+                q = s
+            idxs = kd.query_ball_point(q, r)
+            if not idxs:
+                # Fall back: find single nearest neighbour
+                _, idx = kd.query(q)
+                idxs = [idx]
+            elif len(idxs) > max_neighbours:
+                idxs = limit_neighbour_indices(self.vertices, idxs, s, max_neighbours)
+
+            # Compute heuristic for sample if not done above
+            if c_best == np.inf:
+                h_s = mc.heuristic(s, self.x_goal)
+
+            # ── Cascading parent selection (L1→L2→collision) ──
+            # Sequential collision checking: update best_cost immediately
+            # after each check to prune subsequent candidates early.
+            best_parent = None
+            best_cost = np.inf
+            # Sort candidates by L1 estimate (cheapest first)
+            candidates = []
+            for idx in idxs:
+                v = self.vertices[idx]
+                ec_l1 = mc.edge_cost_l1(v.x, s)
+                # Global pruning: use admissible heuristic for f-value check
+                if c_best < np.inf and v.cost + mc.heuristic(v.x, s) + h_s >= c_best:
+                    continue
+                candidates.append((v.cost + ec_l1, idx, v))
+            candidates.sort()
+
+            for est_cost, idx, v in candidates:
+                if est_cost >= best_cost:
+                    break  # no remaining candidate can be cheaper
+                # L2 Simpson for tree construction (L3 reserved for final path)
+                ec = mc.edge_cost_l2(v.x, s)
+                new_cost = v.cost + ec
+                # Global pruning: skip if true cost + heuristic >= c_best
+                if new_cost + h_s >= c_best:
+                    continue
+                if new_cost >= best_cost:
+                    continue
+                # Check collision immediately (sequential for accurate pruning)
+                if self._adaptive_mode:
+                    is_free, coll_pt = check_edge_collision_with_feedback(
+                        v.x, s, self.collision_free)
+                    if not is_free:
+                        if coll_pt is not None:
+                            self._carm.add_collision_point(coll_pt)
+                        continue
+                else:
+                    if not check_edge_collision(v.x, s, self.collision_free):
+                        continue
+                if new_cost < best_cost:
+                    best_cost = new_cost
+                    best_parent = v
+
+            if best_parent is None:
+                continue
+
+            # Check if this sample is the goal
+            is_goal = np.allclose(s, self.x_goal, atol=1e-8)
+            if is_goal and self.goal_node is not None:
+                # Update goal if improved
+                if best_cost < self.goal_node.cost:
+                    # Detach from old parent
+                    if self.goal_node.parent is not None:
+                        old_p = self.goal_node.parent
+                        if self.goal_node in old_p.children:
+                            old_p.children.remove(self.goal_node)
+                    self.goal_node.parent = best_parent
+                    self.goal_node.cost = best_cost
+                    self.goal_node.f_value = best_cost  # heuristic = 0 at goal
+                    best_parent.children.append(self.goal_node)
+                    self.c_best = best_cost
+                continue
+
+            new_node = Node(s.copy(), cost=best_cost)
+            new_node.parent = best_parent
+            new_node.heuristic = self._fast_heuristic(s)
+            new_node.f_value = best_cost + new_node.heuristic
+            best_parent.children.append(new_node)
+            self.vertices.append(new_node)
+
+            if is_goal:
+                self.goal_node = new_node
+                new_node.heuristic = 0.0
+                new_node.f_value = best_cost
+                self.c_best = best_cost
+
+            # ── Cascading rewiring (L1 filter → f-value pruning → collision) ──
+            # Sequential collision checking for immediate cost propagation.
+            for idx in idxs:
+                v = self.vertices[idx]
+                if v is best_parent or v is self.start_node:
+                    continue
+                # Skip vertices whose f-value already exceeds c_best
+                if v.f_value > c_best:
+                    continue
+                # L1 fast filter before exact evaluation
+                ec_l1 = mc.edge_cost_l1(new_node.x, v.x)
+                if new_node.cost + ec_l1 >= v.cost:
+                    continue
+                ec = mc.edge_cost_l2(new_node.x, v.x)
+                new_cost_v = new_node.cost + ec
+                if new_cost_v < v.cost:
+                    # Check if rewired f-value is useful
+                    if new_cost_v + v.heuristic >= c_best:
+                        continue
+                    # Check collision immediately
+                    if self._adaptive_mode:
+                        is_free, coll_pt = check_edge_collision_with_feedback(
+                            new_node.x, v.x, self.collision_free)
+                        if not is_free:
+                            if coll_pt is not None:
+                                self._carm.add_collision_point(coll_pt)
+                            continue
+                    else:
+                        if not check_edge_collision(new_node.x, v.x, self.collision_free):
+                            continue
+                    if v.parent is not None and v in v.parent.children:
+                        v.parent.children.remove(v)
+                    v.parent = new_node
+                    v.cost = new_cost_v
+                    v.f_value = new_cost_v + v.heuristic
+                    new_node.children.append(v)
+                    self._propagate_cost(v)
+
+            # Update c_best if goal was rewired
+            if self.goal_node is not None:
+                self.c_best = self.goal_node.cost
+                c_best = self.c_best  # refresh local alias
+
+    def _maybe_rebuild_carm_cache(self, iteration: int) -> None:
+        """Rebuild metric cache when CARM has accumulated enough new data.
+
+        Called every iteration in adaptive mode.  Only rebuilds when:
+          1. Enough iterations have passed (rebuild_interval), AND
+          2. The collision count has grown since the last rebuild.
+
+        After rebuilding, vertex heuristics and f-values are updated
+        to reflect the new metric, and the KD-tree is invalidated.
+        """
+        if self._carm is None:
+            return
+        new_count = self._carm.update_count
+        if new_count <= self._carm_last_update_count:
+            return
+        if iteration > 0 and iteration % self._carm_rebuild_interval != 0:
+            return
+
+        self._carm_last_update_count = new_count
+        # Rebuild the metric field cache with the updated adaptive metric
+        self._mc = MetricFieldCache(self.metric, self.bounds,
+                                    resolution=self._cache_res)
+        # Update heuristics for all vertices
+        for v in self.vertices:
+            v.heuristic = self._mc.heuristic(v.x, self.x_goal)
+            v.f_value = v.cost + v.heuristic
+        # Invalidate KD-tree cache (distances may not change for
+        # Euclidean base, but heuristics have)
+        self._kd_index.clear()
+        self._kd_n_verts = 0
+
+    def _propagate_cost(self, node: Node):
+        """Iteratively update cost-to-come for descendants after rewire.
+
+        Uses a stack instead of recursion to avoid hitting Python's
+        recursion limit on deep trees.
+        """
+        mc = self._mc
+        stack = [node]
+        while stack:
+            current = stack.pop()
+            for child in current.children:
+                ec = mc.edge_cost_l2(current.x, child.x)
+                child.cost = current.cost + ec
+                child.f_value = child.cost + child.heuristic
+                stack.append(child)
+
+    # ── internal: pruning ────────────────────────────────────────────
+
+    def _prune(self):
+        """Remove vertices whose f-value exceeds prune_threshold * c_best.
+
+        Notes
+        -----
+        Implements the pruning step of Algorithm 1 — vertices that
+        cannot possibly improve the solution are discarded.
+        """
+        if self.c_best == np.inf:
+            return
+        threshold = self.prune_thresh * self.c_best
+        kept = []
+        for v in self.vertices:
+            if v is self.start_node:
+                kept.append(v)
+                continue
+            if v is self.goal_node:
+                kept.append(v)
+                continue
+            if v.f_value <= threshold:
+                kept.append(v)
+            else:
+                # Detach from parent
+                if v.parent is not None and v in v.parent.children:
+                    v.parent.children.remove(v)
+        self.vertices = kept
+        # Invalidate KD-tree cache after pruning
+        self._kd_index.clear()
+        self._kd_n_verts = 0
+
+    # ── internal: informed set management ────────────────────────────
+
+    def _update_informed_set(self):
+        """Rebuild informed set after c_best improves.
+
+        For anisotropic metrics: builds a whitened EuclideanInformedSet.
+        For conformal/Euclidean: builds a standard EuclideanInformedSet.
+        """
+        if self.c_best < np.inf:
+            if self._use_whitening:
+                d_w = float(np.linalg.norm(self._wg - self._ws))
+                c_eff = max(self.c_best, d_w + 1e-6)
+                self._whitened_eis = EuclideanInformedSet(
+                    self._ws, self._wg, c_eff, bounds=None)
+            else:
+                self._euclid_eis = EuclideanInformedSet(
+                    self.x_start, self.x_goal, self.c_best,
+                    bounds=self.bounds)
+
+    # ── internal: path extraction ────────────────────────────────────
+
+    def _extract_path(self) -> List[np.ndarray]:
+        """Trace the path from x_goal back to x_start via parent pointers.
+
+        Returns
+        -------
+        list of (d,) arrays, start to goal (or empty if unsolved).
+        """
+        if self.goal_node is None:
+            return []
+        path = []
+        node = self.goal_node
+        while node is not None:
+            path.append(node.x.copy())
+            node = node.parent
+        path.reverse()
+        return path
+
+    def _postprocess_edge_cost(self, x: np.ndarray, y: np.ndarray) -> float:
+        """Exact edge cost for final path refinement."""
+        return riemannian_edge_cost(x, y, self.metric)
+
+    def _edge_is_collision_free(self, x: np.ndarray, y: np.ndarray) -> bool:
+        return check_edge_collision(
+            x,
+            y,
+            self.collision_free,
+            step_size=self._postprocess_collision_step,
+        )
+
+    def _path_is_collision_free(self, path: List[np.ndarray]) -> bool:
+        if len(path) <= 1:
+            return bool(path)
+        for idx in range(len(path) - 1):
+            if not self._edge_is_collision_free(path[idx], path[idx + 1]):
+                return False
+        return True
+
+    # ── internal: path shortcutting ───────────────────────────────────
+
+    def _shortcut_path(self, path: List[np.ndarray],
+                       n_attempts: int = 50) -> List[np.ndarray]:
+        """Multi-strategy post-processing for path smoothing.
+
+        Strategy 1: Greedy forward shortcutting — try to skip as many
+                    waypoints as possible from each vertex.
+        Strategy 2: Greedy backward shortcutting — same in reverse.
+        Strategy 3: Random shortcutting — pick random pairs.
+        Strategy 4: Local perturbation — move interior waypoints
+                    toward the midpoint of their neighbours.
+
+        Multiple rounds are applied for high-dimensional spaces where
+        a single pass is insufficient.
+        """
+        if len(path) <= 2:
+            return path
+        improved = list(path)
+
+        n_rounds = 1 + max(0, self.dim - 3)  # more rounds in high-D
+
+        for _round in range(n_rounds):
+            # ── Strategy 1: greedy forward shortcutting ──
+            improved = self._greedy_shortcut_forward(improved)
+
+            # ── Strategy 2: greedy backward shortcutting ──
+            improved = self._greedy_shortcut_backward(improved)
+
+            # ── Strategy 3: random shortcutting ──
+            n_rand = n_attempts // n_rounds
+            for _ in range(n_rand):
+                if len(improved) <= 2:
+                    break
+                i = self.rng.integers(0, len(improved) - 2)
+                j = self.rng.integers(i + 2, len(improved))
+                old_cost = sum(
+                    self._postprocess_edge_cost(improved[k], improved[k + 1])
+                    for k in range(i, j)
+                )
+                new_cost = self._postprocess_edge_cost(improved[i], improved[j])
+                if new_cost < old_cost:
+                    if self._edge_is_collision_free(improved[i], improved[j]):
+                        improved = improved[:i + 1] + improved[j:]
+
+        # ── Strategy 4: local perturbation ──
+        if len(improved) > 2:
+            if self.dim >= 4:
+                n_perturb = 20 * self.dim
+            else:
+                n_perturb = max(24, 10 * len(improved))
+            improved = self._local_perturbation(improved,
+                                                n_attempts=n_perturb)
+
+        return improved
+
+    def _greedy_shortcut_forward(self, path: List[np.ndarray]) -> List[np.ndarray]:
+        """Greedily skip waypoints from start to goal."""
+        if len(path) <= 2:
+            return path
+        # Pre-compute cumulative edge costs to avoid redundant recalculation
+        n = len(path)
+        edge_costs = [self._postprocess_edge_cost(path[k], path[k + 1])
+                      for k in range(n - 1)]
+        cum_cost = [0.0] * n
+        for k in range(1, n):
+            cum_cost[k] = cum_cost[k - 1] + edge_costs[k - 1]
+
+        result = [path[0]]
+        i = 0
+        while i < n - 1:
+            best_j = i + 1
+            for j in range(n - 1, i + 1, -1):
+                old_cost = cum_cost[j] - cum_cost[i]
+                new_cost = self._postprocess_edge_cost(path[i], path[j])
+                if new_cost < old_cost:
+                    if self._edge_is_collision_free(path[i], path[j]):
+                        best_j = j
+                        break
+            result.append(path[best_j])
+            i = best_j
+        return result
+
+    def _greedy_shortcut_backward(self, path: List[np.ndarray]) -> List[np.ndarray]:
+        """Greedily skip waypoints from goal to start (reversed)."""
+        rev = list(reversed(path))
+        smoothed = self._greedy_shortcut_forward(rev)
+        return list(reversed(smoothed))
+
+    def _local_perturbation(self, path: List[np.ndarray],
+                            n_attempts: int = 100) -> List[np.ndarray]:
+        """Move interior waypoints to reduce local cost.
+
+        For each interior waypoint, try moving it toward the midpoint
+        of its neighbors.  If the new position is collision-free and
+        the local cost (prev→new→next) decreases, keep the move.
+        """
+        improved = list(path)
+        for _ in range(n_attempts):
+            if len(improved) <= 2:
+                break
+            i = self.rng.integers(1, len(improved) - 1)
+            prev_pt = improved[i - 1]
+            next_pt = improved[i + 1]
+            cur_pt = improved[i]
+            mid = 0.5 * (prev_pt + next_pt)
+            # Try moving partway toward midpoint
+            alpha = self.rng.uniform(0.3, 0.9)
+            new_pt = cur_pt + alpha * (mid - cur_pt)
+            new_pt = np.clip(new_pt, self._bounds_lo, self._bounds_hi)
+            if not self.collision_free(new_pt):
+                continue
+            old_cost = (self._postprocess_edge_cost(prev_pt, cur_pt) +
+                        self._postprocess_edge_cost(cur_pt, next_pt))
+            new_cost = (self._postprocess_edge_cost(prev_pt, new_pt) +
+                        self._postprocess_edge_cost(new_pt, next_pt))
+            if new_cost < old_cost:
+                if (self._edge_is_collision_free(prev_pt, new_pt) and
+                        self._edge_is_collision_free(new_pt, next_pt)):
+                    improved[i] = new_pt
+        return improved
+
+    # ── internal: statistics ─────────────────────────────────────────
+
+    def _record_stats(self, iteration: int, elapsed: float):
+        """Append one row of per-iteration statistics."""
+        n_samples_total = (iteration + 1) * self.batch_size
+
+        informed_vol = 0.0
+        euclid_vol = 0.0
+        vol_ratio = 1.0
+        analytical_vr = 1.0
+        acc_rate = 1.0  # whitened sampling ≈ 100% acceptance
+
+        if self.c_best < np.inf:
+            informed_vol = self._quick_volume()
+            euclid_vol = self._zeta_d * (self.c_best / 2.0) * \
+                (np.sqrt(max(self.c_best**2 -
+                 float(np.linalg.norm(self.x_goal - self.x_start))**2, 0.0))
+                 / 2.0) ** (self.dim - 1)
+            vol_ratio = informed_vol / max(euclid_vol, 1e-12)
+            # Theorem 1: analytical volume ratio
+            analytical_vr = volume_ratio_bound(
+                self.metric, self.x_start, self.x_goal, self.dim)
+
+        self._stats.append({
+            'iteration': iteration,
+            'n_vertices': len(self.vertices),
+            'c_best': self.c_best,
+            'informed_set_volume': informed_vol,
+            'euclidean_set_volume': euclid_vol,
+            'volume_ratio': vol_ratio,
+            'analytical_volume_ratio': analytical_vr,
+            'acceptance_rate': acc_rate,
+            'time_elapsed': elapsed,
+            'n_samples_total': n_samples_total,
+            'carm_collision_points': (self._carm.n_collision_points
+                                      if self._carm else 0),
+        })

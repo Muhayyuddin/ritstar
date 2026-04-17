@@ -1,0 +1,38 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+
+# Virtual environment
+.venv/
+
+# LaTeX build artifacts
+*.aux
+*.log
+*.out
+*.toc
+*.bbl
+*.blg
+*.fdb_latexmk
+*.fls
+*.synctex.gz
+
+# Editor backups
+*.bak
+*.bak2
+*.swp
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Terminal output logs
+*_output.txt
+*_run.txt
+
+# Visualization outputs
+visualization/
