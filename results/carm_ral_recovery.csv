@@ -1,0 +1,4 @@
+Environment,Oracle Cost,CARM Cost,Euclidean Cost,Recovery %,BIT* Cost
+2D Obstacles,1.5001,2.1532,2.1525,-0.1%,1.4952
+2D Forest,1.7318,2.7259,3.0839,26.5%,1.7136
+2D Maze,4.5723,5.1034,5.1120,1.6%,4.6173

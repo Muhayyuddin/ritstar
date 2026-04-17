@@ -1,0 +1,62 @@
+# ═══════════════════════════════════════════════════════════════════════
+# Run Configuration
+# ═══════════════════════════════════════════════════════════════════════
+#
+# Specify which planners to run on which environments.
+#
+# PLANNERS (case-insensitive, partial match):
+#   RIT, BIT, IRRT (or "Informed RRT"), AIT, EIT, APT, CARM (or RIT-CARM)
+#   "all" = every planner
+#
+# ENVIRONMENTS (case-insensitive, by dimension or name):
+#   Dimensions: 2D, 3D, 6D           → all envs of that dimension
+#   Names:      maze, narrow, forest, terrain, bug_trap, hyper_dense,
+#               spheres, dense_lab, corridor, gauntlet,
+#               hyper_passage, tabletop, shelf, cluttered,
+#               diagonal_2d, obstacle
+#   "all" = every environment
+#
+# EXAMPLES:
+#   planners: all
+#   environments: all
+#     → runs every planner on every environment
+#
+#   planners: [RIT]
+#   environments: [2D]
+#     → runs RIT* on all 2D environments
+#
+#   planners: [RIT, BIT]
+#   environments: [2D, 3D]
+#     → runs RIT* and BIT* on all 2D and 3D environments
+#
+#   planners: [RIT, BIT, AIT]
+#   environments: [maze, narrow, spheres]
+#     → runs those 3 planners on those 3 specific environments
+#
+# ═══════════════════════════════════════════════════════════════════════
+
+planners: all
+environments: [2D]
+
+# Benchmark parameters
+n_trials: 1
+max_iterations: 150
+batch_size: 100
+base_seed: 42
+
+# ── Output options ────────────────────────────────────────────────────
+# save_image: save PNG/PDF plots of tree, path, and metric field
+# save_gif:   save animated GIFs of tree growth
+save_image: true
+save_gif: true
+
+# ── Monte Carlo comparison ───────────────────────────────────────────
+# run_mc: run the full Monte Carlo comparison pipeline
+#         (generates CSV tables, convergence plots, box plots, etc.)
+# mc parameters below are only used when run_mc is true.
+run_mc: false
+mc_n_trials: 10
+mc_max_iterations: 150
+mc_batch_size: 100
+mc_base_seed: 42
+mc_visualize: true

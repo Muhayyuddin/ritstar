@@ -1,0 +1,214 @@
+\relax 
+\providecommand\hyper@newdestlabel[2]{}
+\providecommand\HyperFirstAtBeginDocument{\AtBeginDocument}
+\HyperFirstAtBeginDocument{\ifx\hyper@anchor\@undefined
+\global\let\oldcontentsline\contentsline
+\gdef\contentsline#1#2#3#4{\oldcontentsline{#1}{#2}{#3}}
+\global\let\oldnewlabel\newlabel
+\gdef\newlabel#1#2{\newlabelxx{#1}#2}
+\gdef\newlabelxx#1#2#3#4#5#6{\oldnewlabel{#1}{{#2}{#3}}}
+\AtEndDocument{\ifx\hyper@anchor\@undefined
+\let\contentsline\oldcontentsline
+\let\newlabel\oldnewlabel
+\fi}
+\fi}
+\global\let\hyper@last\relax 
+\gdef\HyperFirstAtBeginDocument#1{#1}
+\providecommand\HyField@AuxAddToFields[1]{}
+\providecommand\HyField@AuxAddToCoFields[2]{}
+\citation{LaValle2006}
+\citation{Karaman2011}
+\citation{Gammell2018}
+\citation{Gammell2018}
+\citation{Gammell2020}
+\citation{Strub2022}
+\citation{APT2025}
+\citation{Ratliff2009}
+\citation{Zucker2013}
+\citation{Klein2023}
+\citation{BeikMohammadi2023}
+\citation{Gammell2018}
+\citation{Gammell2020}
+\citation{Strub2022}
+\citation{APT2025}
+\citation{FIT2024}
+\providecommand \oddpage@label [2]{}
+\@writefile{toc}{\contentsline {section}{\numberline {I}Introduction}{1}{section.1}\protected@file@percent }
+\newlabel{sec:intro}{{I}{1}{Introduction}{section.1}{}}
+\newlabel{sec:intro@cref}{{[section][1][]I}{[1][1][]1}}
+\newlabel{eq:IR}{{1}{1}{Introduction}{equation.1.1}{}}
+\newlabel{eq:IR@cref}{{[equation][1][]1}{[1][1][]1}}
+\citation{Ratliff2009}
+\citation{Zucker2013}
+\citation{Jaillet2008}
+\citation{Kim2016}
+\citation{Kyaw2026}
+\citation{Zhang2023biamrrt}
+\citation{Klein2023}
+\citation{Cheng2018rmpflow}
+\citation{BeikMohammadi2023}
+\@writefile{lof}{\contentsline {figure}{\numberline {1}{\ignorespaces Overview of RIT* on a 2-D obstacle environment. \textbf  {(a)}\nobreakspace  {}Standard Euclidean planners sample uniformly from the large informed set\nobreakspace  {}$\mathcal  {I}_E$ (orange dashed ellipse), wasting many samples in high-cost regions near obstacles. The isotropic neighborhood ball\nobreakspace  {}$r_n$ (circle) treats all directions equally. \textbf  {(b)}\nobreakspace  {}RIT* replaces every Euclidean primitive with its Riemannian counterpart: the tighter informed set\nobreakspace  {}$\mathcal  {I}_R \subset \mathcal  {I}_E$ (teal) eliminates up to 71\% of wasted volume; the anisotropic neighborhood ball\nobreakspace  {}$r_n^R$ (ellipse) reaches further along cheap directions; a three-level cascading filter rejects ${\sim }95\%$ of candidate edges before expensive integration; and the integrated CARM module learns a cost field online from collision feedback ($s(x) = 1 + \alpha \hat  {f}(x)$, warm-color heatmap), progressively tightening $\mathcal  {I}_R$ and steering samples away from obstacles without any a\nobreakspace  {}priori obstacle model.\relax }}{2}{figure.caption.1}\protected@file@percent }
+\providecommand*\caption@xref[2]{\@setref\relax\@undefined{#1}}
+\newlabel{fig:abstract}{{1}{2}{Overview of RIT* on a 2-D obstacle environment. \textbf {(a)}~Standard Euclidean planners sample uniformly from the large informed set~$\mathcal {I}_E$ (orange dashed ellipse), wasting many samples in high-cost regions near obstacles. The isotropic neighborhood ball~$r_n$ (circle) treats all directions equally. \textbf {(b)}~RIT* replaces every Euclidean primitive with its Riemannian counterpart: the tighter informed set~$\mathcal {I}_R \subset \mathcal {I}_E$ (teal) eliminates up to 71\% of wasted volume; the anisotropic neighborhood ball~$r_n^R$ (ellipse) reaches further along cheap directions; a three-level cascading filter rejects ${\sim }95\%$ of candidate edges before expensive integration; and the integrated CARM module learns a cost field online from collision feedback ($s(x) = 1 + \alpha \hat {f}(x)$, warm-color heatmap), progressively tightening $\mathcal {I}_R$ and steering samples away from obstacles without any a~priori obstacle model.\relax }{figure.caption.1}{}}
+\newlabel{fig:abstract@cref}{{[figure][1][]1}{[1][1][]2}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {I-A}}Related Work}{2}{subsection.1.1}\protected@file@percent }
+\newlabel{sec:related}{{\mbox  {I-A}}{2}{Related Work}{subsection.1.1}{}}
+\newlabel{sec:related@cref}{{[subsection][1][1]\mbox  {I-A}}{[1][1][]2}}
+\@writefile{lof}{\contentsline {figure}{\numberline {2}{\ignorespaces Comparison of Euclidean and Riemannian informed sets. (a)\nobreakspace  {}The Euclidean informed set $I_E$ (red ellipse) wastes samples in regions where the Riemannian cost is too high for path improvement. (b)\nobreakspace  {}The Riemannian informed set $I_R$ (blue ellipse) is shaped by the metric tensor, focusing samples on the subspace that can actually contain improving paths.\relax }}{3}{figure.caption.2}\protected@file@percent }
+\newlabel{fig:informed_sets}{{2}{3}{Comparison of Euclidean and Riemannian informed sets. (a)~The Euclidean informed set $I_E$ (red ellipse) wastes samples in regions where the Riemannian cost is too high for path improvement. (b)~The Riemannian informed set $I_R$ (blue ellipse) is shaped by the metric tensor, focusing samples on the subspace that can actually contain improving paths.\relax }{figure.caption.2}{}}
+\newlabel{fig:informed_sets@cref}{{[figure][2][]2}{[1][1][]3}}
+\@writefile{toc}{\contentsline {section}{\numberline {II}Problem Formulation}{3}{section.2}\protected@file@percent }
+\newlabel{sec:problem}{{II}{3}{Problem Formulation}{section.2}{}}
+\newlabel{sec:problem@cref}{{[section][2][]II}{[1][3][]3}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {II-A}}Riemannian Configuration Space}{3}{subsection.2.1}\protected@file@percent }
+\newlabel{eq:cost}{{2}{3}{Riemannian Configuration Space}{equation.2.2}{}}
+\newlabel{eq:cost@cref}{{[equation][2][]2}{[1][3][]3}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {II-B}}Optimal Motion Planning Problem}{3}{subsection.2.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {II-C}}Informed Sets}{3}{subsection.2.3}\protected@file@percent }
+\newlabel{eq:IE}{{4}{3}{Informed Sets}{equation.2.4}{}}
+\newlabel{eq:IE@cref}{{[equation][4][]4}{[1][3][]3}}
+\newlabel{eq:vol_ratio}{{5}{3}{Informed Sets}{equation.2.5}{}}
+\newlabel{eq:vol_ratio@cref}{{[equation][5][]5}{[1][3][]3}}
+\@writefile{lof}{\contentsline {figure}{\numberline {3}{\ignorespaces Metric tensor field for the 2-D Obstacles environment. (a)\nobreakspace  {}The scalar field $g(x)$ inflates traversal cost near obstacles. (b)\nobreakspace  {}Unit metric balls $\{v : v^\top G(x)\, v \le 1\}$: smaller balls near obstacles indicate higher traversal cost; larger balls in open space indicate cheaper movement.\relax }}{4}{figure.caption.3}\protected@file@percent }
+\newlabel{fig:metric_field}{{3}{4}{Metric tensor field for the 2-D Obstacles environment. (a)~The scalar field $g(x)$ inflates traversal cost near obstacles. (b)~Unit metric balls $\{v : v^\top G(x)\, v \le 1\}$: smaller balls near obstacles indicate higher traversal cost; larger balls in open space indicate cheaper movement.\relax }{figure.caption.3}{}}
+\newlabel{fig:metric_field@cref}{{[figure][3][]3}{[1][3][]4}}
+\@writefile{toc}{\contentsline {section}{\numberline {III}Algorithm}{4}{section.3}\protected@file@percent }
+\newlabel{sec:algorithm}{{III}{4}{Algorithm}{section.3}{}}
+\newlabel{sec:algorithm@cref}{{[section][3][]III}{[1][3][]4}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {III-A}}RIT* Overview}{4}{subsection.3.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {\mbox  {III-A}1}Step-by-step iteration}{4}{subsubsection.3.1.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {III-B}}Riemannian Informed Sampling via Whitening}{4}{subsection.3.2}\protected@file@percent }
+\newlabel{sec:whitening}{{\mbox  {III-B}}{4}{Riemannian Informed Sampling via Whitening}{subsection.3.2}{}}
+\newlabel{sec:whitening@cref}{{[subsection][2][3]\mbox  {III-B}}{[1][4][]4}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {III-C}}Cascading Lazy Edge Evaluation}{4}{subsection.3.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {III-D}}Metric Tensor Field Cache}{4}{subsection.3.4}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {4}{\ignorespaces Sampling strategies compared. (a)\nobreakspace  {}Euclidean informed sampling draws uniformly from the prolate hyperspheroid $I_E$, wasting many samples in high-cost regions. (b)\nobreakspace  {}Riemannian informed sampling draws from the tighter $I_R$, concentrating samples where they can improve the path.\relax }}{5}{figure.caption.4}\protected@file@percent }
+\newlabel{fig:sampling}{{4}{5}{Sampling strategies compared. (a)~Euclidean informed sampling draws uniformly from the prolate hyperspheroid $I_E$, wasting many samples in high-cost regions. (b)~Riemannian informed sampling draws from the tighter $I_R$, concentrating samples where they can improve the path.\relax }{figure.caption.4}{}}
+\newlabel{fig:sampling@cref}{{[figure][4][]4}{[1][3][]5}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {III-E}}Connection Radius}{5}{subsection.3.5}\protected@file@percent }
+\newlabel{eq:radius}{{6}{5}{Connection Radius}{equation.3.6}{}}
+\newlabel{eq:radius@cref}{{[equation][6][]6}{[1][4][]5}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {III-F}}High-Dimensional Performance Engineering}{5}{subsection.3.6}\protected@file@percent }
+\newlabel{sec:highd}{{\mbox  {III-F}}{5}{High-Dimensional Performance Engineering}{subsection.3.6}{}}
+\newlabel{sec:highd@cref}{{[subsection][6][3]\mbox  {III-F}}{[1][5][]5}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {III-G}}Metric Types Supported}{5}{subsection.3.7}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {III-H}}Online Metric Learning via CARM}{5}{subsection.3.8}\protected@file@percent }
+\newlabel{sec:carm}{{\mbox  {III-H}}{5}{Online Metric Learning via CARM}{subsection.3.8}{}}
+\newlabel{sec:carm@cref}{{[subsection][8][3]\mbox  {III-H}}{[1][5][]5}}
+\newlabel{eq:carm}{{7}{5}{Online Metric Learning via CARM}{equation.3.7}{}}
+\newlabel{eq:carm@cref}{{[equation][7][]7}{[1][5][]5}}
+\citation{Coumans2021}
+\citation{Gammell2018}
+\citation{Gammell2020}
+\citation{Strub2022}
+\citation{Strub2022}
+\citation{APT2025}
+\citation{APT2025}
+\@writefile{lof}{\contentsline {figure}{\numberline {5}{\ignorespaces Nearest-neighbor selection. (a)\nobreakspace  {}Euclidean neighbors within radius $r$: the isotropic ball treats all directions equally. (b)\nobreakspace  {}Riemannian neighbors within $d_R \le r$: the anisotropic ball reaches further along cheap directions and less along costly ones, naturally adapting connectivity to the cost landscape.\relax }}{6}{figure.caption.5}\protected@file@percent }
+\newlabel{fig:nearest_neighbor}{{5}{6}{Nearest-neighbor selection. (a)~Euclidean neighbors within radius $r$: the isotropic ball treats all directions equally. (b)~Riemannian neighbors within $d_R \le r$: the anisotropic ball reaches further along cheap directions and less along costly ones, naturally adapting connectivity to the cost landscape.\relax }{figure.caption.5}{}}
+\newlabel{fig:nearest_neighbor@cref}{{[figure][5][]5}{[1][3][]6}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {III-I}}CARM Evaluation}{6}{subsection.3.9}\protected@file@percent }
+\newlabel{sec:carm_eval}{{\mbox  {III-I}}{6}{CARM Evaluation}{subsection.3.9}{}}
+\newlabel{sec:carm_eval@cref}{{[subsection][9][3]\mbox  {III-I}}{[1][6][]6}}
+\@writefile{toc}{\contentsline {section}{\numberline {IV}Experiments}{6}{section.4}\protected@file@percent }
+\newlabel{sec:experiments}{{IV}{6}{Experiments}{section.4}{}}
+\newlabel{sec:experiments@cref}{{[section][4][]IV}{[1][6][]6}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {IV-A}}Setup}{6}{subsection.4.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {IV-B}}Full Benchmark Comparison}{6}{subsection.4.2}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {6}{\ignorespaces Per-iteration pipeline of RIT*. (a)\nobreakspace  {}A batch of samples is drawn from the Riemannian informed set $\mathcal  {I}_R$, which concentrates samples where improvements are possible. (b)\nobreakspace  {}Neighbors are found within ellipsoidal Riemannian radius $r_n^R$ --- the ellipse stretches along inexpensive directions. (c)\nobreakspace  {}Candidate parent edges are checked via a 3-level cascade: L1 (midpoint) rejects most, L2 (Simpson) filters further, and only L3 (Gauss--Legendre) uses full integration. (d)\nobreakspace  {}The new node can provide cheaper paths to existing nodes; their parent edges are rewired (old edge removed, new edge established). (e)\nobreakspace  {}Collision points from failed edge checks (red crosses) are fed to CARM, which builds a density-based cost field $s(x) = 1 + \alpha \hat  {f}(x)$ that inflates traversal cost near obstacles. (f)\nobreakspace  {}The informed set shrinks as $c_{\mathrm  {best}}$ improves; nodes that cannot contribute to better paths are pruned.\relax }}{7}{figure.caption.6}\protected@file@percent }
+\newlabel{fig:pipeline}{{6}{7}{Per-iteration pipeline of RIT*. (a)~A batch of samples is drawn from the Riemannian informed set $\mathcal {I}_R$, which concentrates samples where improvements are possible. (b)~Neighbors are found within ellipsoidal Riemannian radius $r_n^R$ --- the ellipse stretches along inexpensive directions. (c)~Candidate parent edges are checked via a 3-level cascade: L1 (midpoint) rejects most, L2 (Simpson) filters further, and only L3 (Gauss--Legendre) uses full integration. (d)~The new node can provide cheaper paths to existing nodes; their parent edges are rewired (old edge removed, new edge established). (e)~Collision points from failed edge checks (red crosses) are fed to CARM, which builds a density-based cost field $s(x) = 1 + \alpha \hat {f}(x)$ that inflates traversal cost near obstacles. (f)~The informed set shrinks as $c_{\mathrm {best}}$ improves; nodes that cannot contribute to better paths are pruned.\relax }{figure.caption.6}{}}
+\newlabel{fig:pipeline@cref}{{[figure][6][]6}{[1][3][]7}}
+\newlabel{fig:compact_pipeline}{{6}{7}{Per-iteration pipeline of RIT*. (a)~A batch of samples is drawn from the Riemannian informed set $\mathcal {I}_R$, which concentrates samples where improvements are possible. (b)~Neighbors are found within ellipsoidal Riemannian radius $r_n^R$ --- the ellipse stretches along inexpensive directions. (c)~Candidate parent edges are checked via a 3-level cascade: L1 (midpoint) rejects most, L2 (Simpson) filters further, and only L3 (Gauss--Legendre) uses full integration. (d)~The new node can provide cheaper paths to existing nodes; their parent edges are rewired (old edge removed, new edge established). (e)~Collision points from failed edge checks (red crosses) are fed to CARM, which builds a density-based cost field $s(x) = 1 + \alpha \hat {f}(x)$ that inflates traversal cost near obstacles. (f)~The informed set shrinks as $c_{\mathrm {best}}$ improves; nodes that cannot contribute to better paths are pruned.\relax }{figure.caption.6}{}}
+\newlabel{fig:compact_pipeline@cref}{{[figure][6][]6}{[1][3][]7}}
+\@writefile{lof}{\contentsline {figure}{\numberline {7}{\ignorespaces Tree rewiring step. (a)\nobreakspace  {}Before rewiring: node\nobreakspace  {}$D$ is connected to parent\nobreakspace  {}$B$ with Riemannian edge cost 0.42. (b)\nobreakspace  {}Cost comparison: the alternative parent\nobreakspace  {}$C$ offers a cheaper connection ($g(C) + c_R(C,D) = 0.35$). (c)\nobreakspace  {}After rewiring: $D$ is reconnected to\nobreakspace  {}$C$, reducing the cost-to-come for all descendants.\relax }}{8}{figure.caption.7}\protected@file@percent }
+\newlabel{fig:rewiring}{{7}{8}{Tree rewiring step. (a)~Before rewiring: node~$D$ is connected to parent~$B$ with Riemannian edge cost 0.42. (b)~Cost comparison: the alternative parent~$C$ offers a cheaper connection ($g(C) + c_R(C,D) = 0.35$). (c)~After rewiring: $D$ is reconnected to~$C$, reducing the cost-to-come for all descendants.\relax }{figure.caption.7}{}}
+\newlabel{fig:rewiring@cref}{{[figure][7][]7}{[1][4][]8}}
+\@writefile{lof}{\contentsline {figure}{\numberline {8}{\ignorespaces Whitened coordinate sampling. (a)\nobreakspace  {}In the original space, $I_R$ is a non-axis-aligned ellipsoid (hard to sample from directly). (b)\nobreakspace  {}The whitening transform $\tilde  {x} = G^{1/2} x$ maps $I_R$ to a standard prolate hyperspheroid. (c)\nobreakspace  {}Uniform samples in whitened space are mapped back via $G^{-1/2}$, yielding uniform coverage of $I_R$ in the Riemannian volume measure.\relax }}{8}{figure.caption.8}\protected@file@percent }
+\newlabel{fig:whitening}{{8}{8}{Whitened coordinate sampling. (a)~In the original space, $I_R$ is a non-axis-aligned ellipsoid (hard to sample from directly). (b)~The whitening transform $\tilde {x} = G^{1/2} x$ maps $I_R$ to a standard prolate hyperspheroid. (c)~Uniform samples in whitened space are mapped back via $G^{-1/2}$, yielding uniform coverage of $I_R$ in the Riemannian volume measure.\relax }{figure.caption.8}{}}
+\newlabel{fig:whitening@cref}{{[figure][8][]8}{[1][4][]8}}
+\@writefile{lof}{\contentsline {figure}{\numberline {9}{\ignorespaces Cascading lazy edge evaluation. Edge cost is estimated at three levels of increasing accuracy: L1 (midpoint), L2 (Simpson's 3-point), L3 (Gauss--Legendre 10-point). Cheap checks prune unpromising edges before expensive evaluations.\relax }}{8}{figure.caption.9}\protected@file@percent }
+\newlabel{fig:edge_eval}{{9}{8}{Cascading lazy edge evaluation. Edge cost is estimated at three levels of increasing accuracy: L1 (midpoint), L2 (Simpson's 3-point), L3 (Gauss--Legendre 10-point). Cheap checks prune unpromising edges before expensive evaluations.\relax }{figure.caption.9}{}}
+\newlabel{fig:edge_eval@cref}{{[figure][9][]9}{[1][4][]8}}
+\@writefile{lof}{\contentsline {figure}{\numberline {10}{\ignorespaces Connection radius comparison for $\kappa =10$, $n=1000$. The Riemannian radius (blue) is smaller than the Euclidean radius (red) because $\mu _{\!R}(I_R) < \mu (I_E)$, yielding fewer edges per vertex and faster per-iteration computation.\relax }}{8}{figure.caption.10}\protected@file@percent }
+\newlabel{fig:connection_radius}{{10}{8}{Connection radius comparison for $\kappa =10$, $n=1000$. The Riemannian radius (blue) is smaller than the Euclidean radius (red) because $\muR (I_R) < \mu (I_E)$, yielding fewer edges per vertex and faster per-iteration computation.\relax }{figure.caption.10}{}}
+\newlabel{fig:connection_radius@cref}{{[figure][10][]10}{[1][5][]8}}
+\@writefile{lof}{\contentsline {figure}{\numberline {11}{\ignorespaces CARM feedback loop. (a)\nobreakspace  {}Collision points (red crosses) are collected during edge evaluation; they cluster near obstacle boundaries. (b)\nobreakspace  {}A Gaussian kernel density estimate builds the adaptive cost field $s(x) = 1 + \alpha \,\hat  {f}(x)$, inflating traversal cost where collisions are dense. (c)\nobreakspace  {}The updated Riemannian metric tightens the informed set $\mathcal  {I}_R$ and steers sampling away from obstacles, yielding a shorter, safer path. The cycle repeats every $\Delta = 15$ iterations.\relax }}{9}{figure.caption.12}\protected@file@percent }
+\newlabel{fig:carm_pipeline_compact}{{11}{9}{CARM feedback loop. (a)~Collision points (red crosses) are collected during edge evaluation; they cluster near obstacle boundaries. (b)~A Gaussian kernel density estimate builds the adaptive cost field $s(x) = 1 + \alpha \,\hat {f}(x)$, inflating traversal cost where collisions are dense. (c)~The updated Riemannian metric tightens the informed set $\mathcal {I}_R$ and steers sampling away from obstacles, yielding a shorter, safer path. The cycle repeats every $\Delta = 15$ iterations.\relax }{figure.caption.12}{}}
+\newlabel{fig:carm_pipeline_compact@cref}{{[figure][11][]11}{[1][5][]9}}
+\@writefile{loa}{\contentsline {algocf}{\numberline {1}{\ignorespaces RIT* planner\relax }}{9}{algocf.1}\protected@file@percent }
+\newlabel{alg:ritstar}{{1}{9}{Connection Radius}{algocf.1}{}}
+\newlabel{alg:ritstar@cref}{{[algorithm][1][]1}{[1][5][]9}}
+\@writefile{lof}{\contentsline {figure}{\numberline {12}{\ignorespaces Convergence comparison with all paths evaluated under the oracle metric. RIT* (oracle) converges fastest; CARM (red) achieves lower oracle-metric cost than both Euclidean baselines, indicating that the learned metric steers sampling toward better paths.\relax }}{9}{figure.caption.13}\protected@file@percent }
+\newlabel{fig:carm_convergence}{{12}{9}{Convergence comparison with all paths evaluated under the oracle metric. RIT* (oracle) converges fastest; CARM (red) achieves lower oracle-metric cost than both Euclidean baselines, indicating that the learned metric steers sampling toward better paths.\relax }{figure.caption.13}{}}
+\newlabel{fig:carm_convergence@cref}{{[figure][12][]12}{[1][6][]9}}
+\@writefile{lof}{\contentsline {figure}{\numberline {13}{\ignorespaces Collision-Adaptive Riemannian Metric (CARM) on the 2-D Obstacle environment. (a)\nobreakspace  {}Oracle metric field $\sqrt  {\qopname  \relax m{det}G(x)}$: high cost near obstacles. (b)\nobreakspace  {}CARM-learned scale $s(x)$ after 100 iterations ($\sim $400 collision points): the learned field concentrates near obstacle boundaries, approximating the oracle structure. (c)\nobreakspace  {}Resulting CARM tree and path.\relax }}{10}{figure.caption.14}\protected@file@percent }
+\newlabel{fig:carm_metric_field}{{13}{10}{Collision-Adaptive Riemannian Metric (CARM) on the 2-D Obstacle environment. (a)~Oracle metric field $\sqrt {\det G(x)}$: high cost near obstacles. (b)~CARM-learned scale $s(x)$ after 100 iterations ($\sim $400 collision points): the learned field concentrates near obstacle boundaries, approximating the oracle structure. (c)~Resulting CARM tree and path.\relax }{figure.caption.14}{}}
+\newlabel{fig:carm_metric_field@cref}{{[figure][13][]13}{[1][6][]10}}
+\@writefile{lof}{\contentsline {figure}{\numberline {14}{\ignorespaces CARM metric evolution over planning iterations. As more collision points are accumulated, the learned cost field progressively refines, leading to tighter informed sets and better sampling allocation.\relax }}{10}{figure.caption.15}\protected@file@percent }
+\newlabel{fig:carm_evolution}{{14}{10}{CARM metric evolution over planning iterations. As more collision points are accumulated, the learned cost field progressively refines, leading to tighter informed sets and better sampling allocation.\relax }{figure.caption.15}{}}
+\newlabel{fig:carm_evolution@cref}{{[figure][14][]14}{[1][6][]10}}
+\@writefile{lof}{\contentsline {figure}{\numberline {15}{\ignorespaces CARM directs samples away from obstacles. (a)\nobreakspace  {}Euclidean planner: 2746\nobreakspace  {}vertices, 824 in high-cost regions. (b)\nobreakspace  {}CARM planner: 1575\nobreakspace  {}vertices with 54\% fewer samples in high-cost regions and a 22.3\% oracle-cost improvement, demonstrating that the learned metric effectively steers sampling toward low-cost free space.\relax }}{11}{figure.caption.16}\protected@file@percent }
+\newlabel{fig:carm_wasted}{{15}{11}{CARM directs samples away from obstacles. (a)~Euclidean planner: 2746~vertices, 824 in high-cost regions. (b)~CARM planner: 1575~vertices with 54\% fewer samples in high-cost regions and a 22.3\% oracle-cost improvement, demonstrating that the learned metric effectively steers sampling toward low-cost free space.\relax }{figure.caption.16}{}}
+\newlabel{fig:carm_wasted@cref}{{[figure][15][]15}{[1][6][]11}}
+\@writefile{lof}{\contentsline {figure}{\numberline {16}{\ignorespaces CARM approximates the oracle metric near obstacles without a\nobreakspace  {}priori knowledge. (a)\nobreakspace  {}Oracle metric field $\sqrt  {\qopname  \relax m{det}G_{\mathrm  {oracle}}(x)}$. (b)\nobreakspace  {}CARM-learned scale $s(x)$ from 471\nobreakspace  {}collision points. (c)\nobreakspace  {}Pearson correlation $r = 0.935$ between learned and oracle values, confirming that CARM captures the essential cost structure from collision feedback alone.\relax }}{11}{figure.caption.17}\protected@file@percent }
+\newlabel{fig:carm_correlation}{{16}{11}{CARM approximates the oracle metric near obstacles without a~priori knowledge. (a)~Oracle metric field $\sqrt {\det G_{\mathrm {oracle}}(x)}$. (b)~CARM-learned scale $s(x)$ from 471~collision points. (c)~Pearson correlation $r = 0.935$ between learned and oracle values, confirming that CARM captures the essential cost structure from collision feedback alone.\relax }{figure.caption.17}{}}
+\newlabel{fig:carm_correlation@cref}{{[figure][16][]16}{[1][6][]11}}
+\@writefile{lof}{\contentsline {figure}{\numberline {17}{\ignorespaces Tree growth sequence in 2-D. (a)\nobreakspace  {}Early exploration: samples spread across the Riemannian informed set; the tree reaches toward the goal. (b)\nobreakspace  {}First path found: $c_{\mathrm  {best}}$ is set and the informed set begins to shrink. (c)\nobreakspace  {}Refinement: rewiring and tighter sampling improve the path; CARM inflates cost near obstacles (warm shading). (d)\nobreakspace  {}Convergence: the tree is dense in the narrow informed set and the path approaches the true optimum.\relax }}{12}{figure.caption.18}\protected@file@percent }
+\newlabel{fig:tree_growth_compact}{{17}{12}{Tree growth sequence in 2-D. (a)~Early exploration: samples spread across the Riemannian informed set; the tree reaches toward the goal. (b)~First path found: $c_{\mathrm {best}}$ is set and the informed set begins to shrink. (c)~Refinement: rewiring and tighter sampling improve the path; CARM inflates cost near obstacles (warm shading). (d)~Convergence: the tree is dense in the narrow informed set and the path approaches the true optimum.\relax }{figure.caption.18}{}}
+\newlabel{fig:tree_growth_compact@cref}{{[figure][17][]17}{[1][6][]12}}
+\@writefile{lof}{\contentsline {figure}{\numberline {18}{\ignorespaces The Riemannian informed set shrinks over batches as $c_{\mathrm  {best}}$ decreases. At $t=0$, sampling covers the entire space. As better paths are found, the informed set contracts, focusing computational effort on the most promising region.\relax }}{12}{figure.caption.19}\protected@file@percent }
+\newlabel{fig:batch_shrinking}{{18}{12}{The Riemannian informed set shrinks over batches as $c_{\mathrm {best}}$ decreases. At $t=0$, sampling covers the entire space. As better paths are found, the informed set contracts, focusing computational effort on the most promising region.\relax }{figure.caption.19}{}}
+\newlabel{fig:batch_shrinking@cref}{{[figure][18][]18}{[1][6][]12}}
+\@writefile{lot}{\contentsline {table}{\numberline {I}{\ignorespaces Mean final path cost over 5 Monte Carlo trials (lower is better). \textbf  {Bold}: best per environment. All planners achieve 100\% success rate.\relax }}{12}{table.caption.21}\protected@file@percent }
+\newlabel{tab:cost}{{I}{12}{Mean final path cost over 5 Monte Carlo trials (lower is better). \textbf {Bold}: best per environment. All planners achieve 100\% success rate.\relax }{table.caption.21}{}}
+\newlabel{tab:cost@cref}{{[table][1][]I}{[1][6][]12}}
+\@writefile{lof}{\contentsline {figure}{\numberline {19}{\ignorespaces Optimal paths differ under Euclidean vs.\ Riemannian costs. (a)\nobreakspace  {}Minimising Euclidean arc-length produces the geometrically shortest path, which may pass near obstacles. (b)\nobreakspace  {}Minimising Riemannian cost $\DOTSI \intop \ilimits@ \sqrt  {\dot  {\sigma }^T G \dot  {\sigma }}\,dt$ curves away from obstacles where $G(x)$ is large, producing a safer path that is also optimal under the true metric.\relax }}{13}{figure.caption.20}\protected@file@percent }
+\newlabel{fig:path_comparison}{{19}{13}{Optimal paths differ under Euclidean vs.\ Riemannian costs. (a)~Minimising Euclidean arc-length produces the geometrically shortest path, which may pass near obstacles. (b)~Minimising Riemannian cost $\int \sqrt {\dot {\sigma }^T G \dot {\sigma }}\,dt$ curves away from obstacles where $G(x)$ is large, producing a safer path that is also optimal under the true metric.\relax }{figure.caption.20}{}}
+\newlabel{fig:path_comparison@cref}{{[figure][19][]19}{[1][6][]13}}
+\@writefile{lot}{\contentsline {table}{\numberline {II}{\ignorespaces Normalised cost improvement over Informed\nobreakspace  {}RRT* (positive = better). \textbf  {Bold}: best per environment. Mean over 5 trials.\relax }}{13}{table.caption.22}\protected@file@percent }
+\newlabel{tab:normalized}{{II}{13}{Normalised cost improvement over Informed~RRT* (positive = better). \textbf {Bold}: best per environment. Mean over 5 trials.\relax }{table.caption.22}{}}
+\newlabel{tab:normalized@cref}{{[table][2][]II}{[1][6][]13}}
+\@writefile{lof}{\contentsline {figure}{\numberline {20}{\ignorespaces Cost convergence over iterations for all 14\nobreakspace  {}environments (mean $\pm $ 1\nobreakspace  {}std over 5 Monte Carlo trials). RIT* (purple) converges competitively with BIT* in low-dimensional environments while achieving the lowest final cost in 6-D Shelf and Cluttered. The shaded bands indicate inter-trial variance; tighter bands reflect more consistent convergence.\relax }}{14}{figure.caption.23}\protected@file@percent }
+\newlabel{fig:convergence}{{20}{14}{Cost convergence over iterations for all 14~environments (mean $\pm $ 1~std over 5 Monte Carlo trials). RIT* (purple) converges competitively with BIT* in low-dimensional environments while achieving the lowest final cost in 6-D Shelf and Cluttered. The shaded bands indicate inter-trial variance; tighter bands reflect more consistent convergence.\relax }{figure.caption.23}{}}
+\newlabel{fig:convergence@cref}{{[figure][20][]20}{[1][7][]14}}
+\@writefile{lof}{\contentsline {figure}{\numberline {21}{\ignorespaces Box plots of final path cost over 5 Monte Carlo trials for all 14\nobreakspace  {}environments (excluding RIT*-CARM for clarity). Lower is better. The box spans the interquartile range (IQR), the median is marked by the horizontal line, and outliers are shown as circles. RIT* achieves the tightest distributions on most 6-D environments, confirming both lower cost and higher consistency.\relax }}{15}{figure.caption.24}\protected@file@percent }
+\newlabel{fig:boxplots}{{21}{15}{Box plots of final path cost over 5 Monte Carlo trials for all 14~environments (excluding RIT*-CARM for clarity). Lower is better. The box spans the interquartile range (IQR), the median is marked by the horizontal line, and outliers are shown as circles. RIT* achieves the tightest distributions on most 6-D environments, confirming both lower cost and higher consistency.\relax }{figure.caption.24}{}}
+\newlabel{fig:boxplots@cref}{{[figure][21][]21}{[1][7][]15}}
+\citation{APT2025}
+\citation{Kyaw2026}
+\@writefile{lot}{\contentsline {table}{\numberline {III}{\ignorespaces Mean planning time in seconds (5 trials). All planners achieve 100\% success.\relax }}{16}{table.caption.25}\protected@file@percent }
+\newlabel{tab:time}{{III}{16}{Mean planning time in seconds (5 trials). All planners achieve 100\% success.\relax }{table.caption.25}{}}
+\newlabel{tab:time@cref}{{[table][3][]III}{[1][16][]16}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {IV-C}}6-DOF Manipulator Case Study}{16}{subsection.4.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {IV-D}}Comparison with APT* (RA-L 2025)}{16}{subsection.4.4}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {IV-E}}Comparison with Kyaw and Kelly (2026)}{16}{subsection.4.5}\protected@file@percent }
+\bibstyle{IEEEtran}
+\bibcite{LaValle2006}{1}
+\bibcite{Karaman2011}{2}
+\bibcite{Gammell2018}{3}
+\bibcite{Gammell2020}{4}
+\bibcite{Strub2022}{5}
+\bibcite{APT2025}{6}
+\bibcite{FIT2024}{7}
+\bibcite{Kyaw2026}{8}
+\bibcite{Zhang2023biamrrt}{9}
+\bibcite{Klein2023}{10}
+\bibcite{Cheng2018rmpflow}{11}
+\bibcite{BeikMohammadi2023}{12}
+\bibcite{doCarmo1992}{13}
+\bibcite{Jaillet2008}{14}
+\@writefile{toc}{\contentsline {section}{\numberline {V}Discussion}{17}{section.5}\protected@file@percent }
+\newlabel{sec:discussion}{{V}{17}{Discussion}{section.5}{}}
+\newlabel{sec:discussion@cref}{{[section][5][]V}{[1][17][]17}}
+\@writefile{toc}{\contentsline {section}{\numberline {VI}Conclusion}{17}{section.6}\protected@file@percent }
+\newlabel{sec:conclusion}{{VI}{17}{Conclusion}{section.6}{}}
+\newlabel{sec:conclusion@cref}{{[section][6][]VI}{[1][17][]17}}
+\@writefile{toc}{\contentsline {section}{References}{17}{section*.26}\protected@file@percent }
+\bibcite{Kim2016}{15}
+\bibcite{Ratliff2009}{16}
+\bibcite{Zucker2013}{17}
+\bibcite{Janson2015}{18}
+\bibcite{Kuffner2000}{19}
+\bibcite{LiCalinon2024}{20}
+\bibcite{Coumans2021}{21}
+\gdef \@abspage@last{18}
