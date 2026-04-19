@@ -1,0 +1,905 @@
+#!/usr/bin/env python3
+"""
+run_benchmark_plots.py — Generate AIT*/EIT*-style anytime benchmark plots.
+
+Produces two-row figures per environment:
+  Top:    Success rate (%) vs planning time (s)
+  Bottom: Solution cost   vs planning time (s)  (median + IQR)
+
+Style follows Strub & Gammell, IJRR 2022 (AIT* and EIT*), Fig. 12–15.
+
+Usage:
+    python run_benchmark_plots.py                    # uses config
+    python run_benchmark_plots.py --envs 2D --trials 10
+    python run_benchmark_plots.py --envs obstacle narrow --planners RIT BIT AIT
+"""
+
+from __future__ import annotations
+
+import argparse
+import gc
+import os
+import sys
+import time
+import pickle
+
+import numpy as np
+import matplotlib
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt
+
+from visualization_util.output_paths import PLOTS_DIR
+from run_from_config import (
+    ENV_REGISTRY, _resolve_environments, _resolve_planners, _build_planner,
+)
+
+# ── Planner style (matches paper conventions) ─────────────────────────
+
+PLANNER_COLORS = {
+    'RIT*':          '#7B2FBE',
+    'Informed RRT*': '#2196F3',
+    'BIT*':          '#4CAF50',
+    'AIT*':          '#FF9800',
+    'EIT*':          '#00897B',
+    'APT*':          '#F44336',
+}
+
+PLANNER_LINESTYLES = {
+    'RIT*':          '-',
+    'Informed RRT*': '--',
+    'BIT*':          '-.',
+    'AIT*':          ':',
+    'EIT*':          '--',
+    'APT*':          '-.',
+}
+
+PLANNER_MARKERS = {
+    'RIT*':          'o',
+    'Informed RRT*': 's',
+    'BIT*':          '^',
+    'AIT*':          'D',
+    'EIT*':          'v',
+    'APT*':          'P',
+}
+
+# ── Data collection ───────────────────────────────────────────────────
+
+def _collect_data(env_name, env_fn, planners, n_trials, max_iterations,
+                  batch_size, base_seed):
+    """Run all planners on one environment for n_trials, return stats."""
+    coll, _, metric, xs, xg, bounds = env_fn()
+    results = {}
+
+    for pname in planners:
+        print(f'    {pname}:', end=' ', flush=True)
+        trial_stats = []
+        for trial in range(n_trials):
+            seed = base_seed + trial
+            planner = _build_planner(
+                pname, xs, xg, bounds, coll, metric,
+                batch_size, max_iterations, seed)
+            planner.plan()
+            stats = planner.get_stats()
+            trial_stats.append(stats)
+            c = stats[-1]['c_best'] if stats else np.inf
+            print(f'{c:.3f}', end=' ', flush=True)
+            del planner
+        gc.collect()
+        results[pname] = trial_stats
+        print()
+
+    return results
+
+
+# ── Interpolation helpers ─────────────────────────────────────────────
+
+def _interpolate_cost_vs_time(trial_stats_list, t_grid):
+    """Interpolate cost-vs-time curves for all trials onto a common grid.
+
+    Returns (n_trials, len(t_grid)) array.  Uses forward-fill: before
+    the first recorded time, cost is inf; after the last, it's held
+    constant.
+    """
+    all_interp = []
+    for stats in trial_stats_list:
+        if not stats:
+            all_interp.append(np.full_like(t_grid, np.inf))
+            continue
+        times = np.array([s['time_elapsed'] for s in stats])
+        costs = np.array([s['c_best'] for s in stats])
+        interp = np.interp(t_grid, times, costs, left=np.inf, right=costs[-1])
+        all_interp.append(interp)
+    return np.array(all_interp)
+
+
+def _success_rate_vs_time(trial_stats_list, t_grid):
+    """Compute fraction of trials that found a solution by each time point.
+
+    Returns (len(t_grid),) array with values in [0, 1].
+    """
+    n_trials = len(trial_stats_list)
+    if n_trials == 0:
+        return np.zeros_like(t_grid)
+
+    success = np.zeros_like(t_grid)
+    for stats in trial_stats_list:
+        if not stats:
+            continue
+        # Find the first time c_best becomes finite
+        first_soln_time = None
+        for s in stats:
+            if np.isfinite(s['c_best']):
+                first_soln_time = s['time_elapsed']
+                break
+        if first_soln_time is not None:
+            success += (t_grid >= first_soln_time).astype(float)
+
+    return success / n_trials
+
+
+# ── Plotting ──────────────────────────────────────────────────────────
+
+def plot_benchmark(env_name, results, planners, out_dir):
+    """Generate a 2-row figure: success rate (top) and cost (bottom)."""
+
+    # Build common time grid (log-spaced for log x-axis)
+    t_max = 0.0
+    t_min_pos = np.inf
+    for pname in planners:
+        for stats in results[pname]:
+            if stats:
+                t_max = max(t_max, stats[-1]['time_elapsed'])
+                for s in stats:
+                    if s['time_elapsed'] > 0:
+                        t_min_pos = min(t_min_pos, s['time_elapsed'])
+    if t_max <= 0:
+        print(f'  Skipping {env_name}: no data')
+        return
+    if t_min_pos == np.inf or t_min_pos <= 0:
+        t_min_pos = t_max * 1e-3
+    t_grid = np.geomspace(t_min_pos * 0.8, t_max * 1.05, 500)
+
+    # IEEE publication style
+    plt.rcParams.update({
+        'font.family': 'serif',
+        'font.size': 10,
+        'axes.labelsize': 11,
+        'axes.titlesize': 12,
+        'legend.fontsize': 8,
+        'xtick.labelsize': 9,
+        'ytick.labelsize': 9,
+        'figure.dpi': 300,
+        'savefig.dpi': 300,
+    })
+
+    fig, (ax_sr, ax_cost) = plt.subplots(2, 1, figsize=(5.5, 6),
+                                          sharex=True, gridspec_kw={
+                                              'height_ratios': [1, 1.4],
+                                              'hspace': 0.08,
+                                          })
+
+    # ── Top: Success rate ──
+    for pname in planners:
+        sr = _success_rate_vs_time(results[pname], t_grid) * 100.0
+        color = PLANNER_COLORS.get(pname, 'gray')
+        ls = PLANNER_LINESTYLES.get(pname, '-')
+        ax_sr.plot(t_grid, sr, color=color, lw=1.8, ls=ls, label=pname)
+
+    ax_sr.set_ylabel('Success [%]')
+    ax_sr.set_ylim(-5, 105)
+    ax_sr.set_yticks([0, 25, 50, 75, 100])
+    ax_sr.set_xscale('log')
+    ax_sr.grid(True, alpha=0.25)
+    ax_sr.set_title(env_name, fontweight='bold')
+
+    # ── Bottom: Cost vs time (median + IQR) ──
+    finite_mins = []
+    for pname in planners:
+        interp = _interpolate_cost_vs_time(results[pname], t_grid)
+        color = PLANNER_COLORS.get(pname, 'gray')
+        ls = PLANNER_LINESTYLES.get(pname, '-')
+
+        # Replace inf with NaN for percentile calculations
+        interp_masked = np.where(np.isinf(interp), np.nan, interp)
+        import warnings
+        with warnings.catch_warnings():
+            warnings.simplefilter('ignore', RuntimeWarning)
+            median_c = np.nanmedian(interp_masked, axis=0)
+            q25 = np.nanpercentile(interp_masked, 25, axis=0)
+            q75 = np.nanpercentile(interp_masked, 75, axis=0)
+
+        # Only plot where at least one trial has a finite cost
+        valid = np.any(np.isfinite(interp), axis=0)
+        t_valid = t_grid[valid]
+        m_valid = median_c[valid]
+        q25_valid = q25[valid]
+        q75_valid = q75[valid]
+
+        if len(t_valid) > 0:
+            ax_cost.plot(t_valid, m_valid, color=color, lw=1.8, ls=ls,
+                         label=pname)
+            ax_cost.fill_between(t_valid, q25_valid, q75_valid,
+                                 color=color, alpha=0.15)
+            fc = m_valid[np.isfinite(m_valid)]
+            if len(fc) > 0:
+                finite_mins.append(np.nanmin(fc))
+
+    ax_cost.set_xlabel('Computation time [s]')
+    ax_cost.set_ylabel('Cost')
+    ax_cost.set_xscale('log')
+    ax_cost.grid(True, alpha=0.25)
+
+    # Sensible y-limits
+    if finite_mins:
+        ymin = min(finite_mins) * 0.95
+        # Get final costs for upper bound
+        final_costs = []
+        for pname in planners:
+            for stats in results[pname]:
+                if stats:
+                    c = stats[-1]['c_best']
+                    if np.isfinite(c):
+                        final_costs.append(c)
+        if final_costs:
+            ymax = np.percentile(final_costs, 95) * 1.15
+            # Also include initial solutions
+            first_costs = []
+            for pname in planners:
+                for stats in results[pname]:
+                    for s in stats:
+                        if np.isfinite(s['c_best']):
+                            first_costs.append(s['c_best'])
+                            break
+            if first_costs:
+                ymax = max(ymax, np.median(first_costs) * 1.05)
+            ax_cost.set_ylim(ymin, ymax)
+
+    # Legend below the bottom plot
+    handles, labels = ax_cost.get_legend_handles_labels()
+    fig.legend(handles, labels, loc='lower center',
+               ncol=min(len(planners), 3), fontsize=8.5,
+               bbox_to_anchor=(0.5, -0.02),
+               frameon=True, fancybox=True, shadow=False,
+               edgecolor='#cccccc')
+
+    # Save
+    safe = env_name.lower().replace(' ', '_').replace('-', '_')
+    out_path = os.path.join(out_dir, f'benchmark_{safe}.pdf')
+    out_png = os.path.join(out_dir, f'benchmark_{safe}.png')
+    fig.savefig(out_path, bbox_inches='tight')
+    fig.savefig(out_png, bbox_inches='tight')
+    plt.close(fig)
+    print(f'  → {out_path}')
+    print(f'  → {out_png}')
+
+
+def plot_combined(all_results, planners, out_dir):
+    """Plot all environments in a combined multi-panel figure."""
+    envs = list(all_results.keys())
+    n_envs = len(envs)
+    if n_envs == 0:
+        return
+
+    n_cols = min(3, n_envs)
+    n_rows_env = (n_envs + n_cols - 1) // n_cols
+    n_rows = n_rows_env * 2  # each env gets 2 rows (success + cost)
+
+    plt.rcParams.update({
+        'font.family': 'serif',
+        'font.size': 9,
+        'axes.labelsize': 10,
+        'axes.titlesize': 11,
+        'legend.fontsize': 7.5,
+        'xtick.labelsize': 8,
+        'ytick.labelsize': 8,
+        'figure.dpi': 300,
+        'savefig.dpi': 300,
+    })
+
+    fig, axes = plt.subplots(n_rows, n_cols,
+                             figsize=(5.2 * n_cols, 3 * n_rows),
+                             squeeze=False)
+
+    for env_idx, env_name in enumerate(envs):
+        col = env_idx % n_cols
+        base_row = (env_idx // n_cols) * 2
+        ax_sr = axes[base_row][col]
+        ax_cost = axes[base_row + 1][col]
+
+        results = all_results[env_name]
+
+        # Time grid (log-spaced for log x-axis)
+        t_max = 0.0
+        t_min_pos = np.inf
+        for pname in planners:
+            if pname not in results:
+                continue
+            for stats in results[pname]:
+                if stats:
+                    t_max = max(t_max, stats[-1]['time_elapsed'])
+                    for s in stats:
+                        if s['time_elapsed'] > 0:
+                            t_min_pos = min(t_min_pos, s['time_elapsed'])
+        if t_max <= 0:
+            ax_sr.set_visible(False)
+            ax_cost.set_visible(False)
+            continue
+        if t_min_pos == np.inf or t_min_pos <= 0:
+            t_min_pos = t_max * 1e-3
+        t_grid = np.geomspace(t_min_pos * 0.8, t_max * 1.05, 500)
+
+        # Success rate
+        for pname in planners:
+            if pname not in results:
+                continue
+            sr = _success_rate_vs_time(results[pname], t_grid) * 100.0
+            color = PLANNER_COLORS.get(pname, 'gray')
+            ls = PLANNER_LINESTYLES.get(pname, '-')
+            ax_sr.plot(t_grid, sr, color=color, lw=1.5, ls=ls, label=pname)
+
+        ax_sr.set_ylabel('Success [%]')
+        ax_sr.set_ylim(-5, 105)
+        ax_sr.set_yticks([0, 50, 100])
+        ax_sr.set_xscale('log')
+        ax_sr.grid(True, alpha=0.25)
+        ax_sr.set_title(env_name, fontweight='bold', fontsize=10)
+        ax_sr.tick_params(labelbottom=False)
+
+        # Cost
+        for pname in planners:
+            if pname not in results:
+                continue
+            interp = _interpolate_cost_vs_time(results[pname], t_grid)
+            color = PLANNER_COLORS.get(pname, 'gray')
+            ls = PLANNER_LINESTYLES.get(pname, '-')
+            interp_masked = np.where(np.isinf(interp), np.nan, interp)
+            import warnings
+            with warnings.catch_warnings():
+                warnings.simplefilter('ignore', RuntimeWarning)
+                median_c = np.nanmedian(interp_masked, axis=0)
+                q25 = np.nanpercentile(interp_masked, 25, axis=0)
+                q75 = np.nanpercentile(interp_masked, 75, axis=0)
+            valid = np.any(np.isfinite(interp), axis=0)
+            t_v = t_grid[valid]
+            m_v = median_c[valid]
+            if len(t_v) > 0:
+                ax_cost.plot(t_v, m_v, color=color, lw=1.5, ls=ls)
+                ax_cost.fill_between(t_v, q25[valid], q75[valid],
+                                     color=color, alpha=0.12)
+
+        ax_cost.set_xlabel('Computation time [s]')
+        ax_cost.set_ylabel('Cost')
+        ax_cost.set_xscale('log')
+        ax_cost.grid(True, alpha=0.25)
+
+        # Y-limits
+        fc = []
+        for pname in planners:
+            if pname not in results:
+                continue
+            for stats in results[pname]:
+                if stats:
+                    c = stats[-1]['c_best']
+                    if np.isfinite(c):
+                        fc.append(c)
+        if fc:
+            ax_cost.set_ylim(min(fc) * 0.95,
+                             np.percentile(fc, 95) * 1.15)
+
+    # Hide unused panels
+    for idx in range(n_envs, n_rows_env * n_cols):
+        col = idx % n_cols
+        base_row = (idx // n_cols) * 2
+        axes[base_row][col].set_visible(False)
+        axes[base_row + 1][col].set_visible(False)
+
+    # Shared legend
+    handles, labels = axes[0][0].get_legend_handles_labels()
+    fig.legend(handles, labels, loc='upper center',
+               ncol=min(len(planners), 6), fontsize=8,
+               bbox_to_anchor=(0.5, 1.01),
+               frameon=True, fancybox=True, edgecolor='#cccccc')
+
+    fig.tight_layout(rect=[0, 0, 1, 0.97])
+
+    out_path = os.path.join(out_dir, 'benchmark_combined.pdf')
+    out_png = os.path.join(out_dir, 'benchmark_combined.png')
+    fig.savefig(out_path, bbox_inches='tight')
+    fig.savefig(out_png, bbox_inches='tight')
+    plt.close(fig)
+    print(f'  → {out_path}')
+    print(f'  → {out_png}')
+
+
+# ── Table II-style benchmark table (APT* paper format) ───────────────
+
+def generate_table_ii(all_results, planners, out_dir, n_trials=10):
+    """Generate a Table II-style performance comparison table.
+
+    Columns per planner (for each environment):
+      t_init_min, t_init_med, t_init_max,
+      c_init_min, c_init_med, c_init_max,
+      c_final_min, c_final_med, c_final_max,
+      success rate
+    Similar to APT* paper Table II (cage-ENV comparison).
+    Saved as CSV, printed to console, and exported as LaTeX.
+    """
+    import csv
+
+    rows = []
+    for env_name, results in all_results.items():
+        for pname in planners:
+            if pname not in results:
+                continue
+            trial_stats_list = results[pname]
+
+            init_times = []
+            init_costs = []
+            final_costs = []
+            for stats in trial_stats_list:
+                if not stats:
+                    init_times.append(np.inf)
+                    init_costs.append(np.inf)
+                    final_costs.append(np.inf)
+                    continue
+                first_t, first_c = np.inf, np.inf
+                for s in stats:
+                    if np.isfinite(s['c_best']):
+                        first_t = s['time_elapsed']
+                        first_c = s['c_best']
+                        break
+                init_times.append(first_t)
+                init_costs.append(first_c)
+                final_costs.append(stats[-1]['c_best'])
+
+            init_times = np.array(init_times)
+            init_costs = np.array(init_costs)
+            final_costs = np.array(final_costs)
+
+            n_success = np.sum(np.isfinite(init_costs))
+            success_rate = n_success / len(init_costs)
+
+            finite_it = init_times[np.isfinite(init_times)]
+            finite_ic = init_costs[np.isfinite(init_costs)]
+            finite_fc = final_costs[np.isfinite(final_costs)]
+
+            def _safe(fn, arr):
+                return fn(arr) if len(arr) > 0 else np.inf
+
+            rows.append({
+                'env': env_name,
+                'planner': pname,
+                't_init_min': _safe(np.min, finite_it),
+                't_init_med': _safe(np.median, finite_it),
+                't_init_max': _safe(np.max, finite_it),
+                'c_init_min': _safe(np.min, finite_ic),
+                'c_init_med': _safe(np.median, finite_ic),
+                'c_init_max': _safe(np.max, finite_ic),
+                'c_final_min': _safe(np.min, finite_fc),
+                'c_final_med': _safe(np.median, finite_fc),
+                'c_final_max': _safe(np.max, finite_fc),
+                'success': success_rate,
+            })
+
+    if not rows:
+        print('  No data for Table II.')
+        return
+
+    # ── Console output ────────────────────────────────────────────────
+    col_keys = ['t_init_min', 't_init_med', 't_init_max',
+                'c_init_min', 'c_init_med', 'c_init_max',
+                'c_final_min', 'c_final_med', 'c_final_max']
+    col_labels = ['t_i^min', 't_i^med', 't_i^max',
+                  'c_i^min', 'c_i^med', 'c_i^max',
+                  'c_f^min', 'c_f^med', 'c_f^max']
+
+    print('\n' + '=' * 145)
+    print('  PERFORMANCE COMPARISON TABLE (Table II style)')
+    print('=' * 145)
+    hdr = f'  {"Planner":<16}'
+    for lbl in col_labels:
+        hdr += f' {lbl:>9}'
+    hdr += f' {"Success":>8}'
+    for env_name in all_results:
+        print(f'\n  Environment: {env_name}')
+        print(hdr)
+        print('  ' + '-' * 140)
+
+        env_rows = [r for r in rows if r['env'] == env_name]
+        best = {}
+        for key in col_keys:
+            vals = [r[key] for r in env_rows if np.isfinite(r[key])]
+            best[key] = min(vals) if vals else np.inf
+        best_sr = max(r['success'] for r in env_rows)
+
+        for r in env_rows:
+            line = f'  {r["planner"]:<16}'
+            for key in col_keys:
+                val = r[key]
+                if not np.isfinite(val):
+                    line += '       inf'
+                elif abs(val - best[key]) < 1e-9:
+                    line += f'  *{val:.4f}'
+                else:
+                    line += f' {val:9.4f}'
+            sr = r['success'] * 100
+            if abs(r['success'] - best_sr) < 1e-9:
+                line += f'  *{sr:.0f}%'
+            else:
+                line += f' {sr:7.0f}%'
+            print(line)
+        print('  ' + '-' * 140)
+
+    # ── CSV ───────────────────────────────────────────────────────────
+    csv_path = os.path.join(out_dir, 'benchmark_table_ii.csv')
+    fieldnames = ['env', 'planner'] + col_keys + ['success']
+    with open(csv_path, 'w', newline='') as f:
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        writer.writeheader()
+        for r in rows:
+            writer.writerow(r)
+    print(f'\n  -> Table II CSV saved to {csv_path}')
+
+    # ── LaTeX ─────────────────────────────────────────────────────────
+    _generate_latex_table_ii(rows, all_results, planners, out_dir)
+
+
+def _generate_latex_table_ii(rows, all_results, planners, out_dir):
+    """Generate a LaTeX-formatted table similar to APT* Table II."""
+    col_keys = ['t_init_min', 't_init_med', 't_init_max',
+                'c_init_min', 'c_init_med', 'c_init_max',
+                'c_final_min', 'c_final_med', 'c_final_max']
+    tex_headers = [
+        r'$t^{\min}_{\mathrm{init}}$',
+        r'$t^{\mathrm{med}}_{\mathrm{init}}$',
+        r'$t^{\max}_{\mathrm{init}}$',
+        r'$c^{\min}_{\mathrm{init}}$',
+        r'$c^{\mathrm{med}}_{\mathrm{init}}$',
+        r'$c^{\max}_{\mathrm{init}}$',
+        r'$c^{\min}_{\mathrm{final}}$',
+        r'$c^{\mathrm{med}}_{\mathrm{final}}$',
+        r'$c^{\max}_{\mathrm{final}}$',
+    ]
+
+    lines = []
+    for env_name in all_results:
+        env_rows = [r for r in rows if r['env'] == env_name]
+        if not env_rows:
+            continue
+
+        safe_env = env_name.replace('_', r'\_')
+        lines.append(r'\begin{table}[t]')
+        lines.append(r'\centering')
+        n_runs = len(next(iter(all_results[env_name].values())))
+        lines.append(r'\caption{Performance comparison in ' + safe_env
+                     + ' over ' + str(n_runs) + ' runs.}')
+        lines.append(r'\label{tab:table_ii_' + env_name.lower().replace(' ', '_') + '}')
+        lines.append(r'\resizebox{\columnwidth}{!}{%')
+
+        col_spec = '|l|' + 'c' * 3 + '|' + 'c' * 3 + '|' + 'c' * 3 + '|c|'
+        lines.append(r'\begin{tabular}{' + col_spec + '}')
+        lines.append(r'\hline')
+
+        # Group headers
+        lines.append(
+            r' & \multicolumn{3}{c|}{$t_{\mathrm{init}}$}'
+            r' & \multicolumn{3}{c|}{$c_{\mathrm{init}}$}'
+            r' & \multicolumn{3}{c|}{$c_{\mathrm{final}}$}'
+            r' & \\'
+        )
+        sub = ' & '.join([''] + tex_headers + [r'$S$ (\%)']) + r' \\'
+        lines.append(sub)
+        lines.append(r'\hline')
+
+        # Best values per column
+        best = {}
+        for key in col_keys:
+            vals = [r[key] for r in env_rows if np.isfinite(r[key])]
+            best[key] = min(vals) if vals else np.inf
+        best_sr = max(r['success'] for r in env_rows)
+
+        for r in env_rows:
+            cells = [r['planner'].replace('*', r'$^*$')]
+            for key in col_keys:
+                val = r[key]
+                if not np.isfinite(val):
+                    cells.append(r'$\infty$')
+                elif abs(val - best[key]) < 1e-9:
+                    cells.append(r'\textbf{' + f'{val:.4f}' + '}')
+                else:
+                    cells.append(f'{val:.4f}')
+            sr = r['success'] * 100
+            if abs(r['success'] - best_sr) < 1e-9:
+                cells.append(r'\textbf{' + f'{sr:.0f}' + '}')
+            else:
+                cells.append(f'{sr:.0f}')
+            lines.append(' & '.join(cells) + r' \\')
+
+        lines.append(r'\hline')
+        lines.append(r'\end{tabular}}')
+        lines.append(r'\end{table}')
+        lines.append('')
+
+    tex_path = os.path.join(out_dir, 'benchmark_table_ii.tex')
+    with open(tex_path, 'w') as f:
+        f.write('\n'.join(lines))
+    print(f'  -> Table II LaTeX saved to {tex_path}')
+
+
+# ── Table III-style benchmark table (APT* paper format) ──────────────
+
+def generate_table_iii(all_results, planners, out_dir, n_trials=10):
+    """Generate a Table III-style benchmark evaluation table.
+
+    Columns per planner: t_init_min, t_init_med, c_init_med
+    Plus: c_final_med, success rate, and RIT* improvement %.
+    Saved as CSV and printed to console in LaTeX-friendly format.
+    """
+    import csv
+
+    rows = []
+    for env_name, results in all_results.items():
+        for pname in planners:
+            if pname not in results:
+                continue
+            trial_stats_list = results[pname]
+
+            # Collect per-trial initial solution time and cost
+            init_times = []
+            init_costs = []
+            final_costs = []
+            for stats in trial_stats_list:
+                if not stats:
+                    init_times.append(np.inf)
+                    init_costs.append(np.inf)
+                    final_costs.append(np.inf)
+                    continue
+                # Find first iteration with finite cost
+                first_t, first_c = np.inf, np.inf
+                for s in stats:
+                    if np.isfinite(s['c_best']):
+                        first_t = s['time_elapsed']
+                        first_c = s['c_best']
+                        break
+                init_times.append(first_t)
+                init_costs.append(first_c)
+                final_costs.append(stats[-1]['c_best'])
+
+            init_times = np.array(init_times)
+            init_costs = np.array(init_costs)
+            final_costs = np.array(final_costs)
+
+            n_success = np.sum(np.isfinite(init_costs))
+            success_rate = n_success / len(init_costs)
+
+            finite_it = init_times[np.isfinite(init_times)]
+            finite_ic = init_costs[np.isfinite(init_costs)]
+            finite_fc = final_costs[np.isfinite(final_costs)]
+
+            rows.append({
+                'env': env_name,
+                'planner': pname,
+                't_init_min': np.min(finite_it) if len(finite_it) > 0 else np.inf,
+                't_init_med': np.median(finite_it) if len(finite_it) > 0 else np.inf,
+                'c_init_med': np.median(finite_ic) if len(finite_ic) > 0 else np.inf,
+                'c_final_med': np.median(finite_fc) if len(finite_fc) > 0 else np.inf,
+                'success': success_rate,
+            })
+
+    if not rows:
+        print('  No data for table.')
+        return
+
+    # Print console table
+    print('\n' + '=' * 110)
+    print('  BENCHMARK EVALUATION TABLE (Table III style)')
+    print('=' * 110)
+    header = f'  {"Environment":<20} {"Planner":<16} {"t_init_min":>10} {"t_init_med":>10} {"c_init_med":>10} {"c_final_med":>11} {"Success":>8}'
+    print(header)
+    print('  ' + '─' * 106)
+
+    for env_name in all_results:
+        env_rows = [r for r in rows if r['env'] == env_name]
+        # Find best values for bolding
+        best_t_min = min(r['t_init_min'] for r in env_rows if np.isfinite(r['t_init_min'])) if any(np.isfinite(r['t_init_min']) for r in env_rows) else np.inf
+        best_t_med = min(r['t_init_med'] for r in env_rows if np.isfinite(r['t_init_med'])) if any(np.isfinite(r['t_init_med']) for r in env_rows) else np.inf
+        best_c_med = min(r['c_init_med'] for r in env_rows if np.isfinite(r['c_init_med'])) if any(np.isfinite(r['c_init_med']) for r in env_rows) else np.inf
+        best_fc = min(r['c_final_med'] for r in env_rows if np.isfinite(r['c_final_med'])) if any(np.isfinite(r['c_final_med']) for r in env_rows) else np.inf
+        best_sr = max(r['success'] for r in env_rows)
+
+        for r in env_rows:
+            def _fmt(val, best, is_time=False):
+                if not np.isfinite(val):
+                    return '       inf'
+                s = f'{val:10.4f}'
+                if abs(val - best) < 1e-9:
+                    s = f'  *{val:.4f}'
+                return s
+
+            t_min_s = _fmt(r['t_init_min'], best_t_min, True)
+            t_med_s = _fmt(r['t_init_med'], best_t_med, True)
+            c_med_s = _fmt(r['c_init_med'], best_c_med)
+            fc_s = _fmt(r['c_final_med'], best_fc)
+            sr_s = f'{r["success"]*100:7.1f}%'
+            if abs(r['success'] - best_sr) < 1e-9:
+                sr_s = f' *{r["success"]*100:.1f}%'
+            print(f'  {r["env"]:<20} {r["planner"]:<16} {t_min_s} {t_med_s} {c_med_s} {fc_s:>11} {sr_s:>8}')
+        print('  ' + '─' * 106)
+
+    # Save CSV
+    csv_path = os.path.join(out_dir, 'benchmark_table_iii.csv')
+    with open(csv_path, 'w', newline='') as f:
+        writer = csv.DictWriter(f, fieldnames=[
+            'env', 'planner', 't_init_min', 't_init_med',
+            'c_init_med', 'c_final_med', 'success'])
+        writer.writeheader()
+        for r in rows:
+            writer.writerow(r)
+    print(f'\n  → Table saved to {csv_path}')
+
+    # Generate LaTeX table
+    _generate_latex_table(rows, all_results, planners, out_dir)
+
+
+def _generate_latex_table(rows, all_results, planners, out_dir):
+    """Generate a LaTeX-formatted table similar to APT* Table III."""
+    lines = []
+    lines.append(r'\begin{table}[t]')
+    lines.append(r'\centering')
+    lines.append(r'\caption{Benchmark Evaluations}')
+    lines.append(r'\label{tab:benchmark}')
+
+    n_planners = len(planners)
+    col_spec = '|l|' + '|'.join(['ccc'] * n_planners) + '|c|'
+    lines.append(r'\begin{tabular}{' + col_spec + '}')
+    lines.append(r'\hline')
+
+    # Header row 1: planner names spanning 3 columns each
+    header1 = ' & '.join(
+        [r'\multicolumn{3}{c|}{' + p + '}' for p in planners]
+    )
+    lines.append(r' & ' + header1 + r' & Success \\ ')
+
+    # Header row 2: t_init_min, t_init_med, c_init_med for each
+    sub_headers = []
+    for _ in planners:
+        sub_headers.extend([r'$t^{\min}_{\mathrm{init}}$',
+                           r'$t^{\mathrm{med}}_{\mathrm{init}}$',
+                           r'$c^{\mathrm{med}}_{\mathrm{init}}$'])
+    lines.append(' & '.join([''] + sub_headers + [r'(\%)']) + r' \\')
+    lines.append(r'\hline')
+
+    # Data rows
+    for env_name in all_results:
+        env_rows = [r for r in rows if r['env'] == env_name]
+        if not env_rows:
+            continue
+
+        # Find best per column
+        best = {}
+        for key in ['t_init_min', 't_init_med', 'c_init_med']:
+            vals = [r[key] for r in env_rows if np.isfinite(r[key])]
+            best[key] = min(vals) if vals else np.inf
+
+        cells = [env_name.replace('_', r'\_')]
+        for pname in planners:
+            pr = [r for r in env_rows if r['planner'] == pname]
+            if pr:
+                r = pr[0]
+                for key in ['t_init_min', 't_init_med', 'c_init_med']:
+                    val = r[key]
+                    if not np.isfinite(val):
+                        cells.append('$\\infty$')
+                    elif abs(val - best[key]) < 1e-9:
+                        cells.append(r'\textbf{' + f'{val:.4f}' + '}')
+                    else:
+                        cells.append(f'{val:.4f}')
+            else:
+                cells.extend(['--', '--', '--'])
+
+        # Success rate (take max as best)
+        best_sr = max(r['success'] for r in env_rows)
+        sr_strs = []
+        for pname in planners:
+            pr = [r for r in env_rows if r['planner'] == pname]
+            if pr:
+                sr = pr[0]['success'] * 100
+                if abs(pr[0]['success'] - best_sr) < 1e-9:
+                    sr_strs.append(r'\textbf{' + f'{sr:.0f}' + '}')
+                else:
+                    sr_strs.append(f'{sr:.0f}')
+        cells.append('/'.join(sr_strs))
+
+        lines.append(' & '.join(cells) + r' \\')
+
+    lines.append(r'\hline')
+    lines.append(r'\end{tabular}')
+    lines.append(r'\end{table}')
+
+    tex_path = os.path.join(out_dir, 'benchmark_table_iii.tex')
+    with open(tex_path, 'w') as f:
+        f.write('\n'.join(lines))
+    print(f'  → LaTeX table saved to {tex_path}')
+
+def main():
+    parser = argparse.ArgumentParser(
+        description='Generate AIT*/EIT*-style benchmark plots')
+    parser.add_argument('--envs', nargs='+', default=['2D'],
+                        help='Environments (e.g. 2D, obstacle, maze_e)')
+    parser.add_argument('--planners', nargs='+', default=None,
+                        help='Planners (e.g. RIT BIT AIT). Default: all')
+    parser.add_argument('--trials', type=int, default=10,
+                        help='Number of trials per planner (default: 10)')
+    parser.add_argument('--max-iter', type=int, default=150,
+                        help='Max iterations per trial (default: 150)')
+    parser.add_argument('--batch-size', type=int, default=100,
+                        help='Batch size (default: 100)')
+    parser.add_argument('--seed', type=int, default=42,
+                        help='Base random seed (default: 42)')
+    parser.add_argument('--out', type=str, default=None,
+                        help='Output directory (default: visualization/plots)')
+    parser.add_argument('--cache', type=str, default=None,
+                        help='Cache file to save/load results (pickle)')
+    args = parser.parse_args()
+
+    environments = _resolve_environments(args.envs)
+    if args.planners:
+        planners = _resolve_planners(args.planners)
+    else:
+        planners = ['RIT*', 'Informed RRT*', 'BIT*', 'AIT*', 'EIT*', 'APT*']
+    out_dir = args.out or PLOTS_DIR
+    os.makedirs(out_dir, exist_ok=True)
+
+    print('=' * 60)
+    print('  ANYTIME BENCHMARK PLOTS')
+    print('=' * 60)
+    print(f'  Environments:  {environments}')
+    print(f'  Planners:      {planners}')
+    print(f'  Trials:        {args.trials}')
+    print(f'  Max iters:     {args.max_iter}')
+    print(f'  Batch size:    {args.batch_size}')
+    print(f'  Base seed:     {args.seed}')
+    print(f'  Output dir:    {out_dir}')
+    print('=' * 60)
+
+    # Load or collect data
+    all_results = {}
+    cache_path = args.cache
+
+    if cache_path and os.path.isfile(cache_path):
+        print(f'\nLoading cached results from {cache_path}')
+        with open(cache_path, 'rb') as f:
+            all_results = pickle.load(f)
+        print(f'  Loaded {len(all_results)} environments')
+    else:
+        for env_name in environments:
+            env_fn, dim_tag = ENV_REGISTRY[env_name]
+            print(f'\n  Environment: {env_name} ({dim_tag.upper()})')
+            results = _collect_data(
+                env_name, env_fn, planners, args.trials,
+                args.max_iter, args.batch_size, args.seed)
+            all_results[env_name] = results
+
+        if cache_path:
+            os.makedirs(os.path.dirname(cache_path) or '.', exist_ok=True)
+            with open(cache_path, 'wb') as f:
+                pickle.dump(all_results, f)
+            print(f'\n  Cached results to {cache_path}')
+
+    # Generate plots
+    print('\nGenerating plots...')
+    for env_name in all_results:
+        plot_benchmark(env_name, all_results[env_name], planners, out_dir)
+
+    if len(all_results) > 1:
+        plot_combined(all_results, planners, out_dir)
+
+    # Generate Table II and III-style benchmark tables
+    generate_table_ii(all_results, planners, out_dir, n_trials=args.trials)
+    generate_table_iii(all_results, planners, out_dir, n_trials=args.trials)
+
+    print('\nDone.')
+
+
+if __name__ == '__main__':
+    main()

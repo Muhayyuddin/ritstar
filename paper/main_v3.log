@@ -1,4 +1,4 @@
-This is pdfTeX, Version 3.141592653-2.6-1.40.22 (TeX Live 2022/dev/Debian) (preloaded format=pdflatex 2026.4.2)  12 APR 2026 00:27
+This is pdfTeX, Version 3.141592653-2.6-1.40.22 (TeX Live 2022/dev/Debian) (preloaded format=pdflatex 2026.4.2)  18 APR 2026 22:44
 entering extended mode
  restricted \write18 enabled.
  %&-line parsing enabled.
@@ -978,11 +978,11 @@ nslations-basic-dictionary')
 )
 Package translations Info: loading dictionary `translations-basic-dictionary' f
 or `english'. on input line 49.
-<figures/fig_abstract.pdf, id=111, 1062.36902pt x 522.39967pt>
+<figures/fig_abstract.pdf, id=111, 667.20195pt x 403.22646pt>
 File: figures/fig_abstract.pdf Graphic file (type pdf)
 <use figures/fig_abstract.pdf>
 Package pdftex.def Info: figures/fig_abstract.pdf  used on input line 98.
-(pdftex.def)             Requested size: 516.0pt x 253.73817pt.
+(pdftex.def)             Requested size: 516.0pt x 311.85123pt.
 LaTeX Font Info:    Trying to load font information for U+msa on input line 110
 .
  (/usr/share/texlive/texmf-dist/tex/latex/amsfonts/umsa.fd
@@ -1025,47 +1025,56 @@ Underfull \vbox (badness 10000) has occurred while \output is active []
 
 
 LaTeX Font Warning: Font shape `T1/ptm/m/scit' undefined
-(Font)              using `T1/ptm/m/sc' instead on input line 382.
+(Font)              using `T1/ptm/m/sc' instead on input line 388.
 
 [3 <./figures/fig_compact_pipeline.pdf>]
-Underfull \hbox (badness 3449) in paragraph at lines 502--511
+
+LaTeX Warning: Reference `line:nn' on page 4 undefined on input line 499.
+
+
+Underfull \hbox (badness 3449) in paragraph at lines 508--517
 []\T1/ptm/m/n/10 RIT* re-places the isotropic Eu-clidean ball with an
  []
 
-
-Underfull \hbox (badness 5607) in paragraph at lines 590--603
+[4]
+Underfull \hbox (badness 5607) in paragraph at lines 596--609
 []\T1/ptm/m/n/10 Computing the Rie-man-nian edge cost $\OML/cmm/m/it/10 c[]\OT1
 /cmr/m/n/10 (\OML/cmm/m/it/10 u; v\OT1/cmr/m/n/10 ) =
  []
 
-[4] [5]
+[5]
 
 LaTeX Warning: Reference `fig:carm_wasted' on page 1 undefined on input line 86
-3.
+9.
 
 
-Underfull \hbox (badness 1406) in paragraph at lines 868--872
+Underfull \hbox (badness 1406) in paragraph at lines 874--878
 []\T1/ptm/b/n/10 Rewiring. \T1/ptm/m/n/10 When the met-ric is up-dated, edges t
 hat
  []
 
 
 LaTeX Warning: Reference `fig:carm_correlation' on page 1 undefined on input li
-ne 881.
+ne 887.
 
-<figures/fig_carm_pipeline_compact.pdf, id=510, 510.92694pt x 179.8099pt>
+<figures/fig_carm_pipeline_compact.pdf, id=449, 510.92694pt x 179.8099pt>
 File: figures/fig_carm_pipeline_compact.pdf Graphic file (type pdf)
 <use figures/fig_carm_pipeline_compact.pdf>
 Package pdftex.def Info: figures/fig_carm_pipeline_compact.pdf  used on input l
-ine 895.
+ine 901.
 (pdftex.def)             Requested size: 516.0pt x 181.61203pt.
-<figures/fig_carm_evolution.pdf, id=511, 480.71342pt x 144.90135pt>
+<figures/fig_carm_evolution.pdf, id=450, 480.71342pt x 144.90135pt>
 File: figures/fig_carm_evolution.pdf Graphic file (type pdf)
 <use figures/fig_carm_evolution.pdf>
-Package pdftex.def Info: figures/fig_carm_evolution.pdf  used on input line 910
+Package pdftex.def Info: figures/fig_carm_evolution.pdf  used on input line 916
 .
 (pdftex.def)             Requested size: 516.0pt x 155.5448pt.
-[6]
+
+Underfull \vbox (badness 4341) has occurred while \output is active []
+
+ [6]
+[7 <./figures/fig_carm_pipeline_compact.pdf> <./figures/fig_carm_evolution.pdf>
+]
 
 Package siunitx Info: Option "detect-weight" has been deprecated in this
 (siunitx)             release.
@@ -1074,32 +1083,33 @@ Package siunitx Info: Option "detect-weight" has been deprecated in this
 (siunitx)             true" as a replacement.
 
 
-Underfull \vbox (badness 2096) has occurred while \output is active []
-
- [7 <./figures/fig_carm_pipeline_compact.pdf> <./figures/fig_carm_evolution.pdf
->]
-Underfull \hbox (badness 3396) in paragraph at lines 1219--1223
+Underfull \hbox (badness 3396) in paragraph at lines 1225--1229
 []\T1/ptm/b/n/10 Cluttered \T1/ptm/m/n/10 fea-tures mul-ti-ple ob-sta-cles. RIT
 * achieves
  []
 
-<figures/fig_carm_convergence.pdf, id=695, 230.44713pt x 172.75792pt>
+<figures/fig_carm_convergence.pdf, id=632, 230.44713pt x 172.75792pt>
 File: figures/fig_carm_convergence.pdf Graphic file (type pdf)
 <use figures/fig_carm_convergence.pdf>
 Package pdftex.def Info: figures/fig_carm_convergence.pdf  used on input line 1
-338.
+344.
 (pdftex.def)             Requested size: 252.0pt x 188.92186pt.
-<figures/fig_carm_metric_field.pdf, id=696, 490.59628pt x 184.799pt>
+<figures/fig_carm_metric_field.pdf, id=633, 490.59628pt x 184.799pt>
 File: figures/fig_carm_metric_field.pdf Graphic file (type pdf)
 <use figures/fig_carm_metric_field.pdf>
 Package pdftex.def Info: figures/fig_carm_metric_field.pdf  used on input line 
-1358.
+1364.
 (pdftex.def)             Requested size: 516.0pt x 194.38022pt.
 [8 <./figures/fig_carm_convergence.pdf>]
-Overfull \vbox (5.75847pt too high) has occurred while \output is active []
+
+Package balance Warning: You have called \balance in second column
+(balance)                Columns might not be balanced.
+
+[9 <./figures/fig_carm_metric_field.pdf>]
+Overfull \vbox (1.73193pt too high) has occurred while \output is active []
 
 
-[9 <./figures/fig_carm_metric_field.pdf>] [10] (./main_v3.aux)
+[10] (./main_v3.aux)
 
 LaTeX Warning: There were undefined references.
 
@@ -1107,13 +1117,13 @@ Package rerunfilecheck Info: File `main_v3.out' has not changed.
 (rerunfilecheck)             Checksum: 0C13164A1C556468BE3507779E32E9E8;4009.
  ) 
 Here is how much of TeX's memory you used:
- 30198 strings out of 480171
- 606394 string characters out of 5894490
- 862811 words of memory out of 5000000
- 47557 multiletter control sequences out of 15000+600000
- 596118 words of font info for 168 fonts, out of 8000000 for 9000
+ 30205 strings out of 480171
+ 606490 string characters out of 5894490
+ 855882 words of memory out of 5000000
+ 47560 multiletter control sequences out of 15000+600000
+ 597214 words of font info for 169 fonts, out of 8000000 for 9000
  59 hyphenation exceptions out of 8191
- 100i,21n,104p,842b,923s stack positions out of 5000i,500n,10000p,200000b,80000s
+ 100i,18n,104p,842b,915s stack positions out of 5000i,500n,10000p,200000b,80000s
 {/usr/share/texlive/texmf-dist/fonts/enc/dvips/base/8r.enc}</usr/share/texliv
 e/texmf-dist/fonts/type1/public/amsfonts/cm/cmbx8.pfb></usr/share/texlive/texmf
 -dist/fonts/type1/public/amsfonts/cm/cmex10.pfb></usr/share/texlive/texmf-dist/
@@ -1134,10 +1144,10 @@ msfonts/symbols/msbm10.pfb></usr/share/texlive/texmf-dist/fonts/type1/urw/times
 /utmb8a.pfb></usr/share/texlive/texmf-dist/fonts/type1/urw/times/utmbi8a.pfb></
 usr/share/texlive/texmf-dist/fonts/type1/urw/times/utmr8a.pfb></usr/share/texli
 ve/texmf-dist/fonts/type1/urw/times/utmri8a.pfb>
-Output written on main_v3.pdf (10 pages, 2763483 bytes).
+Output written on main_v3.pdf (10 pages, 2182652 bytes).
 PDF statistics:
- 1003 PDF objects out of 1200 (max. 8388607)
- 509 compressed objects within 6 object streams
- 128 named destinations out of 1000 (max. 500000)
+ 942 PDF objects out of 1000 (max. 8388607)
+ 507 compressed objects within 6 object streams
+ 131 named destinations out of 1000 (max. 500000)
  251 words of extra memory for PDF output out of 10000 (max. 10000000)
 

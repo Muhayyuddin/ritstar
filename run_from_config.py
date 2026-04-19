@@ -44,13 +44,21 @@ from rit_star.environments import (
     env_2d_terrain,
     env_2d_hyper_dense,
     env_2d_joint_arm,
+    env_2d_random_world,
+    env_2d_dividing_wall,
     env_3d_diagonal_anisotropic,
     env_3d_sphere_field,
     env_3d_narrow_passage,
     env_3d_dense_labyrinth,
     env_3d_anisotropic_corridor,
     env_3d_obstacle_gauntlet,
+    env_3d_wall_and_gaps,
+    env_3d_box_field,
     env_6d_hyper_passage,
+    env_2d_obstacle_euclidean,
+    env_2d_narrow_euclidean,
+    env_2d_maze_euclidean,
+    env_2d_forest_euclidean,
     ALL_6D_ENVS,
 )
 
@@ -91,13 +99,22 @@ ENV_REGISTRY = {
     '2D Terrain':     (env_2d_terrain,              '2d'),
     '2D Hyper-Dense': (env_2d_hyper_dense,          '2d'),
     '2D Joint Arm':   (env_2d_joint_arm,            '2d'),
+    '2D Random World': (env_2d_random_world,          '2d'),
+    '2D Dividing Wall': (env_2d_dividing_wall,        '2d'),
     '3D Diagonal':    (env_3d_diagonal_anisotropic, '3d'),
     '3D Spheres':     (env_3d_sphere_field,         '3d'),
     '3D Narrow':      (env_3d_narrow_passage,       '3d'),
     '3D Dense Lab':   (env_3d_dense_labyrinth,      '3d'),
     '3D Corridor':    (env_3d_anisotropic_corridor, '3d'),
     '3D Gauntlet':    (env_3d_obstacle_gauntlet,    '3d'),
+    '3D Wall & Gaps': (env_3d_wall_and_gaps,        '3d'),
+    '3D Box Field':   (env_3d_box_field,            '3d'),
     '6D Hyper-Passage': (env_6d_hyper_passage,      '6d'),
+    # Euclidean-cost variants (same obstacles, Euclidean metric)
+    '2D Obstacle-E':  (env_2d_obstacle_euclidean,    '2d_euclid'),
+    '2D Narrow-E':    (env_2d_narrow_euclidean,       '2d_euclid'),
+    '2D Maze-E':      (env_2d_maze_euclidean,         '2d_euclid'),
+    '2D Forest-E':    (env_2d_forest_euclidean,        '2d_euclid'),
 }
 
 # Aliases mapping short names (lowercase) → list of canonical env names
@@ -112,24 +129,35 @@ ENV_ALIASES = {
     'terrain':     ['2D Terrain'],
     'hyper_dense': ['2D Hyper-Dense'],
     'joint_arm':   ['2D Joint Arm'],
+    'random_world': ['2D Random World'],
+    'dividing_wall': ['2D Dividing Wall'],
+    'dw': ['2D Dividing Wall'],
     'diagonal_3d': ['3D Diagonal'],
     'spheres':     ['3D Spheres'],
     'narrow_3d':   ['3D Narrow'],
     'dense_lab':   ['3D Dense Lab'],
     'corridor':    ['3D Corridor'],
     'gauntlet':    ['3D Gauntlet'],
+    'wall_and_gaps': ['3D Wall & Gaps'],
+    'box_field':   ['3D Box Field'],
     'hyper_passage': ['6D Hyper-Passage'],
+    'obstacle_e':  ['2D Obstacle-E'],
+    'narrow_e':    ['2D Narrow-E'],
+    'maze_e':      ['2D Maze-E'],
+    'forest_e':    ['2D Forest-E'],
     'tabletop':    ['6D Tabletop'],
     'shelf':       ['6D Shelf'],
     'cluttered':   ['6D Cluttered'],
+    'real_setup':  ['6D Real Setup'],
 }
 
 # Add 6D PyBullet environments if available
 if ALL_6D_ENVS:
-    from rit_star.environments import env_6d_tabletop, env_6d_shelf, env_6d_cluttered
+    from rit_star.environments import env_6d_tabletop, env_6d_shelf, env_6d_cluttered, env_6d_real_setup
     ENV_REGISTRY['6D Tabletop']  = (env_6d_tabletop,  '6d')
     ENV_REGISTRY['6D Shelf']     = (env_6d_shelf,      '6d')
     ENV_REGISTRY['6D Cluttered'] = (env_6d_cluttered,  '6d')
+    ENV_REGISTRY['6D Real Setup'] = (env_6d_real_setup, '6d')
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -220,10 +248,13 @@ def _resolve_environments(spec) -> list[str]:
         token_lower = str(token).strip().lower()
         if token_lower == 'all':
             return list(ENV_REGISTRY.keys())
-        # Check dimension tags: 2d, 3d, 6d
-        if token_lower in ('2d', '3d', '6d'):
+        # Check dimension tags: 2d, 3d, 6d, 2d_euclid, euclid
+        if token_lower in ('2d', '3d', '6d', '2d_euclid', 'euclid'):
+            match_tag = token_lower
+            if token_lower == 'euclid':
+                match_tag = '2d_euclid'
             for env_name, (_, dim_tag) in ENV_REGISTRY.items():
-                if dim_tag == token_lower and env_name not in resolved:
+                if dim_tag == match_tag and env_name not in resolved:
                     resolved.append(env_name)
             continue
         # Check aliases
@@ -262,6 +293,14 @@ def load_config(path: str) -> dict:
         # Output options
         'save_image': bool(cfg.get('save_image', False)),
         'save_gif': bool(cfg.get('save_gif', False)),
+        # Benchmark plots
+        'run_benchmark_plots': bool(cfg.get('run_benchmark_plots', False)),
+        'generate_benchmark_plots': bool(cfg.get('generate_benchmark_plots', True)),
+        'generate_benchmark_tables': bool(cfg.get('generate_benchmark_tables', True)),
+        'bench_n_trials': int(cfg.get('bench_n_trials', 10)),
+        'bench_max_iterations': int(cfg.get('bench_max_iterations', 150)),
+        'bench_batch_size': int(cfg.get('bench_batch_size', 100)),
+        'bench_base_seed': int(cfg.get('bench_base_seed', 42)),
         # Monte Carlo comparison
         'run_mc': bool(cfg.get('run_mc', False)),
         'mc_n_trials': int(cfg.get('mc_n_trials', 10)),
@@ -287,7 +326,7 @@ _PLANNER_COLORS = {
     'Informed RRT*': '#2196F3',   # blue
     'BIT*':          '#4CAF50',   # green
     'AIT*':          '#FF9800',   # orange
-    'EIT*':          '#9C27B0',   # deep purple
+    'EIT*':          '#00897B',   # teal
     'APT*':          '#F44336',   # red
 }
 
@@ -302,6 +341,12 @@ _ENV_OBSTACLE_KEY = {
     '2D Terrain':     '2d_terrain',
     '2D Hyper-Dense': '2d_hyper_dense',
     '2D Joint Arm':   '2d_arm',
+    '2D Obstacle-E':  '2d_obstacle',
+    '2D Narrow-E':    '2d_narrow_passage',
+    '2D Maze-E':      '2d_maze',
+    '2D Forest-E':    '2d_random_forest',
+    '2D Random World': '2d_random_world',
+    '2D Dividing Wall': '2d_dividing_wall',
 }
 
 
@@ -433,6 +478,8 @@ def _save_comparison_figure_2d(env_name, planner_records, xs, xg, bounds):
 def _draw_obstacles_3d_static(ax, env_name):
     """Draw solid grey 3D obstacles (boxes or spheres) onto an Axes3D."""
     from mpl_toolkits.mplot3d.art3d import Poly3DCollection
+    # Strip planner suffix (e.g. '3D Box Field_RIT*' → '3D Box Field')
+    env_name = env_name.rsplit('_', 1)[0] if '_' in env_name else env_name
 
     def _box_faces(lo, hi):
         lo, hi = np.array(lo), np.array(hi)
@@ -486,6 +533,50 @@ def _draw_obstacles_3d_static(ax, env_name):
             ax.plot_surface(xs_, ys_, zs_, color='#606060',
                             alpha=0.6, shade=True, linewidth=0)
 
+    elif env_name == '3D Wall & Gaps':
+        # Wall slab
+        wall_faces = _box_faces([0.47, 0.0, 0.0], [0.53, 1.0, 1.0])
+        poly = Poly3DCollection(wall_faces, alpha=0.25,
+                                facecolor='#888888', edgecolor='#555555', linewidth=0.3)
+        ax.add_collection3d(poly)
+        # Flanking box obstacles
+        flanking_boxes = [
+            ([0.20, 0.60, 0.00], [0.35, 0.85, 0.40]),
+            ([0.65, 0.15, 0.60], [0.80, 0.40, 1.00]),
+            ([0.30, 0.00, 0.60], [0.45, 0.25, 0.90]),
+            ([0.55, 0.75, 0.10], [0.70, 1.00, 0.40]),
+        ]
+        for lo, hi in flanking_boxes:
+            faces = _box_faces(lo, hi)
+            poly = Poly3DCollection(faces, alpha=0.55,
+                                    facecolor='#505050', edgecolor='#2a2a2a', linewidth=0.5)
+            ax.add_collection3d(poly)
+        # Mark hole positions with translucent green circles (visible clearance)
+        u = np.linspace(0, 2 * np.pi, 30)
+        for hc, hr in [([0.35, 0.35], 0.10), ([0.70, 0.70], 0.10)]:
+            ys_ = hc[0] + hr * np.cos(u)
+            zs_ = hc[1] + hr * np.sin(u)
+            ax.plot([0.50]*len(u), ys_, zs_, color='#00cc00', lw=2.0, alpha=0.8)
+
+    elif env_name == '3D Box Field':
+        boxes = [
+            ([0.15, 0.15, 0.00], [0.35, 0.35, 0.45]),
+            ([0.45, 0.00, 0.00], [0.65, 0.25, 0.35]),
+            ([0.70, 0.30, 0.00], [0.90, 0.55, 0.30]),
+            ([0.10, 0.50, 0.30], [0.30, 0.75, 0.60]),
+            ([0.40, 0.40, 0.35], [0.60, 0.65, 0.65]),
+            ([0.65, 0.55, 0.25], [0.85, 0.80, 0.55]),
+            ([0.20, 0.20, 0.60], [0.45, 0.45, 0.85]),
+            ([0.50, 0.60, 0.65], [0.75, 0.85, 0.90]),
+            ([0.10, 0.70, 0.55], [0.30, 0.95, 0.80]),
+            ([0.70, 0.10, 0.50], [0.90, 0.35, 0.80]),
+        ]
+        for lo, hi in boxes:
+            faces = _box_faces(lo, hi)
+            poly = Poly3DCollection(faces, alpha=0.55,
+                                    facecolor='#505050', edgecolor='#2a2a2a', linewidth=0.5)
+            ax.add_collection3d(poly)
+
 
 def _save_image_3d(env_name, planner, path):
     """Save PNGs: path-only and tree+path for a 3D environment."""
@@ -534,7 +625,7 @@ def _save_image_3d(env_name, planner, path):
 def _save_gif(env_name, env_fn, dim_tag):
     """Save a tree-growth GIF for a 2D or 3D environment."""
     safe = env_name.lower().replace(' ', '_')
-    if dim_tag == '2d':
+    if dim_tag.startswith('2d'):
         from visualization_util.visualize_riemannian import animate_tree_growth
         animate_tree_growth(env_name, env_fn, f'config_{safe}',
                             max_iterations=80, batch_size=100,
@@ -642,7 +733,7 @@ def run(cfg: dict):
             env_results[planner_name] = trial_results
 
         # Save comparison figure for 2D environments
-        if save_image and dim_tag == '2d' and comparison_records:
+        if save_image and dim_tag.startswith('2d') and comparison_records:
             _save_comparison_figure_2d(env_name, comparison_records, xs, xg, bounds)
 
         # Save GIF once per environment (uses first planner / default RIT*)
@@ -700,6 +791,59 @@ def run_mc(cfg: dict):
     print('\nMonte Carlo comparison done.')
 
 
+def run_benchmark(cfg: dict):
+    """Run AIT*/EIT*-style anytime benchmark plots."""
+    from run_benchmark_plots import (
+        _collect_data, plot_benchmark, plot_combined,
+        generate_table_ii, generate_table_iii,
+    )
+    from visualization_util.output_paths import PLOTS_DIR
+
+    print('\n' + '=' * 60)
+    print('  ANYTIME BENCHMARK PLOTS')
+    print('=' * 60)
+    print(f'  Bench trials:     {cfg["bench_n_trials"]}')
+    print(f'  Bench max iters:  {cfg["bench_max_iterations"]}')
+    print(f'  Bench batch size: {cfg["bench_batch_size"]}')
+    print(f'  Bench base seed:  {cfg["bench_base_seed"]}')
+    print(f'  Generate plots:   {cfg["generate_benchmark_plots"]}')
+    print(f'  Generate tables:  {cfg["generate_benchmark_tables"]}')
+    print('=' * 60)
+
+    planners = cfg['planners']
+    environments = cfg['environments']
+    all_results = {}
+
+    for env_name in environments:
+        env_fn, dim_tag = ENV_REGISTRY[env_name]
+        print(f'\n  Environment: {env_name} ({dim_tag.upper()})')
+        results = _collect_data(
+            env_name, env_fn, planners, cfg['bench_n_trials'],
+            cfg['bench_max_iterations'], cfg['bench_batch_size'],
+            cfg['bench_base_seed'])
+        all_results[env_name] = results
+
+    os.makedirs(PLOTS_DIR, exist_ok=True)
+
+    # Generate benchmark plots (Fig 6 style)
+    if cfg['generate_benchmark_plots']:
+        print('\nGenerating benchmark plots...')
+        for env_name in all_results:
+            plot_benchmark(env_name, all_results[env_name], planners, PLOTS_DIR)
+        if len(all_results) > 1:
+            plot_combined(all_results, planners, PLOTS_DIR)
+
+    # Generate benchmark tables (Table II / III style)
+    if cfg['generate_benchmark_tables']:
+        print('\nGenerating benchmark tables...')
+        generate_table_ii(all_results, planners, PLOTS_DIR,
+                          n_trials=cfg['bench_n_trials'])
+        generate_table_iii(all_results, planners, PLOTS_DIR,
+                           n_trials=cfg['bench_n_trials'])
+
+    print('\nBenchmark plots done.')
+
+
 # ═══════════════════════════════════════════════════════════════════════
 #  CLI
 # ═══════════════════════════════════════════════════════════════════════
@@ -722,6 +866,9 @@ if __name__ == '__main__':
         sys.exit(1)
 
     run(cfg)
+
+    if cfg.get('run_benchmark_plots', False):
+        run_benchmark(cfg)
 
     if cfg.get('run_mc', False):
         run_mc(cfg)

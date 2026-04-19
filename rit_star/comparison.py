@@ -28,7 +28,7 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from scipy.stats import mannwhitneyu
 
-from output_paths import RESULTS_DIR, PLOTS_DIR
+from visualization_util.output_paths import RESULTS_DIR, PLOTS_DIR
 from .rit_star import RITStar
 from .baselines import InformedRRTStar, BITStar, AITStar, EITStar, APTStar
 from .environments import (
@@ -74,7 +74,7 @@ PLANNER_COLORS = {
     'Informed RRT*': '#2196F3',   # blue
     'BIT*':          '#4CAF50',   # green
     'AIT*':          '#FF9800',   # orange
-    'EIT*':          '#9C27B0',   # deep purple
+    'EIT*':          '#00897B',   # teal
     'APT*':          '#F44336',   # red
 }
 
@@ -624,9 +624,10 @@ def _plot_convergence_single_env(env_name, results, filename):
         costs = [s['c_best'] for s in stats]
         ax2.plot(times, costs, color=PLANNER_COLORS[pname], lw=2, label=pname)
 
-    ax2.set_xlabel('Time (s)')
+    ax2.set_xlabel('Computation time [s]')
     ax2.set_ylabel('Cost')
     ax2.set_title(f'{env_name} — Cost vs. Time')
+    ax2.set_xscale('log')
     ax2.legend(fontsize=8)
     ax2.grid(True, alpha=0.3)
     if finite_costs:
@@ -652,15 +653,21 @@ def _plot_convergence_vs_time(all_results,
                              figsize=(6 * n_cols, 5 * n_rows),
                              squeeze=False)
 
-    # Common time grid for interpolation
+    # Common time grid for interpolation (log-spaced)
     t_max_global = 0.0
+    t_min_pos = np.inf
     for results in all_results.values():
         for pname in PLANNER_NAMES:
             for td in results[pname]:
                 if td['stats']:
                     t_max_global = max(t_max_global,
                                        td['stats'][-1]['time_elapsed'])
-    t_grid = np.linspace(0, t_max_global, 300)
+                    for s in td['stats']:
+                        if s['time_elapsed'] > 0:
+                            t_min_pos = min(t_min_pos, s['time_elapsed'])
+    if t_min_pos == np.inf or t_min_pos <= 0:
+        t_min_pos = t_max_global * 1e-3
+    t_grid = np.geomspace(t_min_pos * 0.8, t_max_global * 1.05, 300)
 
     for idx, (env_name, results) in enumerate(all_results.items()):
         r, c = divmod(idx, n_cols)
@@ -690,9 +697,10 @@ def _plot_convergence_vs_time(all_results,
             ax.fill_between(t_grid, mean_c - std_c, mean_c + std_c,
                             color=color, alpha=0.15)
 
-        ax.set_xlabel('Wall-clock time (s)')
+        ax.set_xlabel('Computation time [s]')
         ax.set_ylabel('Cost')
         ax.set_title(env_name)
+        ax.set_xscale('log')
         ax.grid(True, alpha=0.3)
 
         # Clip y-axis

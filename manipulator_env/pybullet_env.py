@@ -52,7 +52,8 @@ class UR10eRobotiqEnv:
     JOINT_LIMITS_UPPER = np.array([2 * np.pi] * 3 + [2 * np.pi] * 3)
 
     def __init__(self, gui: bool = True,
-                 obstacles: Optional[List[dict]] = None):
+                 obstacles: Optional[List[dict]] = None,
+                 base_position: Optional[List[float]] = None):
         mode = p.GUI if gui else p.DIRECT
         self.physics_client = p.connect(mode)
         cid = self.physics_client
@@ -65,9 +66,10 @@ class UR10eRobotiqEnv:
                                    physicsClientId=cid)
 
         # Load UR10e + Robotiq
+        bp = base_position if base_position is not None else [0, 0, 0]
         self.robot_id = p.loadURDF(
             _URDF,
-            basePosition=[0, 0, 0],
+            basePosition=bp,
             baseOrientation=p.getQuaternionFromEuler([0, 0, 0]),
             useFixedBase=True,
             flags=p.URDF_USE_SELF_COLLISION,

@@ -10,10 +10,12 @@
 #
 # ENVIRONMENTS (case-insensitive, by dimension or name):
 #   Dimensions: 2D, 3D, 6D           → all envs of that dimension
+#               euclid / 2d_euclid   → all Euclidean-cost 2D envs
 #   Names:      maze, narrow, forest, terrain, bug_trap, hyper_dense,
 #               spheres, dense_lab, corridor, gauntlet,
 #               hyper_passage, tabletop, shelf, cluttered,
-#               diagonal_2d, obstacle
+#               diagonal_2d, obstacle,
+#               obstacle_e, narrow_e, maze_e, forest_e  (Euclidean-cost)
 #   "all" = every environment
 #
 # EXAMPLES:
@@ -33,10 +35,27 @@
 #   environments: [maze, narrow, spheres]
 #     → runs those 3 planners on those 3 specific environments
 #
+#   planners: all
+#   environments: [euclid]
+#     → runs every planner on Euclidean-cost 2D envs (tight BIT* ellipses)
+#
+#   planners: all
+#   environments: [2D, euclid]
+#     → runs every planner on both Riemannian AND Euclidean 2D envs
+#
+#   planners: [RIT, BIT]
+#   environments: [obstacle, obstacle_e]
+#     → same obstacles, compare Riemannian vs Euclidean cost side by side
+#random_world
 # ═══════════════════════════════════════════════════════════════════════
 
-planners: all
-environments: [2D]
+#planners: all
+#environments: [2D]
+
+planners:      ['RIT*', 'Informed RRT*', 'BIT*', 'AIT*', 'EIT*', 'APT*']
+environments:  ['random_world','dividing_wall','real_setup']
+
+#environments:  ['random_world','2D Diagonal', '2D Obstacle', '2D Narrow', '2D Maze', '2D Bug Trap', '2D Forest', '2D Terrain', '2D Hyper-Dense', '2D Joint Arm']
 
 # Benchmark parameters
 n_trials: 1
@@ -48,7 +67,23 @@ base_seed: 42
 # save_image: save PNG/PDF plots of tree, path, and metric field
 # save_gif:   save animated GIFs of tree growth
 save_image: true
-save_gif: true
+save_gif: false
+
+# ── Benchmark (AIT*/EIT* style) ───────────────────────────────────────
+# run_benchmark_plots: run the multi-trial data collection; if false
+#                      neither plots nor tables will be generated.
+# generate_benchmark_plots: generate Fig 6-style dual-panel plots
+#                           (success rate + cost vs log-scale time)
+# generate_benchmark_tables: generate Table II / III-style benchmark
+#                            tables (CSV + LaTeX + console)
+# bench parameters below are only used when run_benchmark_plots is true.
+run_benchmark_plots: true
+generate_benchmark_plots: true
+generate_benchmark_tables: true
+bench_n_trials: 10
+bench_max_iterations: 150
+bench_batch_size: 100
+bench_base_seed: 42
 
 # ── Monte Carlo comparison ───────────────────────────────────────────
 # run_mc: run the full Monte Carlo comparison pipeline

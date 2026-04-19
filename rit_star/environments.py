@@ -998,7 +998,7 @@ _UR10E_INERTIAS = np.array([7.369, 13.051, 3.989, 2.1, 1.98, 0.615])
 _UR10E_WEIGHTS = (_UR10E_INERTIAS / _UR10E_INERTIAS.max()).tolist()
 
 
-def _make_ur10e_env(scene_fn) -> EnvTuple:
+def _make_ur10e_env(scene_fn, base_position=None) -> EnvTuple:
     """Generic factory: wrap a PyBullet scene into the standard 6-tuple.
 
     Uses DiagonalAnisotropicMetric with inertia-based weights for fast
@@ -1008,7 +1008,8 @@ def _make_ur10e_env(scene_fn) -> EnvTuple:
         raise ImportError("pybullet is required for UR10e environments")
 
     obstacles, q_start, q_goal = scene_fn()
-    env = UR10eRobotiqEnv(gui=False, obstacles=obstacles)
+    env = UR10eRobotiqEnv(gui=False, obstacles=obstacles,
+                          base_position=base_position)
 
     metric = DiagonalAnisotropicMetric(weights=_UR10E_WEIGHTS)
 
@@ -1086,12 +1087,76 @@ def env_6d_cluttered() -> EnvTuple:
     return _make_ur10e_env(_scene_cluttered)
 
 
+# ── Real-world replicated setup ──────────────────────────────────────
+
+_REAL_TABLE_Z   = 0.75
+_REAL_SLAB_T    = 0.01990
+_REAL_ROBOT_Z   = _REAL_TABLE_Z + _REAL_SLAB_T     # 0.76990 m
+_REAL_SHELF_REL = (0.67138, -0.68403, -0.01590)     # shelf centre w.r.t. base
+
+_REAL_SHELF_W = 0.32    # width  (y)
+_REAL_SHELF_D = 0.24    # depth  (x)
+_REAL_SHELF_H = 0.54    # height (z)
+_REAL_SHELF_T = 0.02    # panel thickness
+
+
+def _scene_real_setup():
+    """Real-world setup: UR10e on table with 2-compartment shelf.
+
+    Shelf open face points toward robot (−x direction).
+    """
+    sx = _REAL_SHELF_REL[0]
+    sy = _REAL_SHELF_REL[1]
+    sz = _REAL_ROBOT_Z + _REAL_SHELF_REL[2]
+    W, D, H, t = _REAL_SHELF_W, _REAL_SHELF_D, _REAL_SHELF_H, _REAL_SHELF_T
+    c = [0.92, 0.92, 0.92, 1.0]
+
+    obstacles = [
+        # Back wall (+x end)
+        {"type": "box", "color": c,
+         "pos": [sx + D / 2 - t / 2, sy, sz + H / 2],
+         "half_extents": [t / 2, W / 2, H / 2]},
+        # Left side wall (−y)
+        {"type": "box", "color": c,
+         "pos": [sx, sy - W / 2 + t / 2, sz + H / 2],
+         "half_extents": [D / 2, t / 2, H / 2]},
+        # Right side wall (+y)
+        {"type": "box", "color": c,
+         "pos": [sx, sy + W / 2 - t / 2, sz + H / 2],
+         "half_extents": [D / 2, t / 2, H / 2]},
+        # Bottom panel
+        {"type": "box", "color": c,
+         "pos": [sx, sy, sz + t / 2],
+         "half_extents": [D / 2, W / 2, t / 2]},
+        # Middle shelf
+        {"type": "box", "color": c,
+         "pos": [sx, sy, sz + H / 2],
+         "half_extents": [D / 2, W / 2, t / 2]},
+        # Top panel
+        {"type": "box", "color": c,
+         "pos": [sx, sy, sz + H - t / 2],
+         "half_extents": [D / 2, W / 2, t / 2]},
+    ]
+
+    # Start: home config; Goal: reaching toward upper shelf compartment
+    q_start = np.array([0.0, -np.pi / 2, 0.0, -np.pi / 2, 0.0, 0.0])
+    q_goal = np.array([1.2, -1.2, 1.0, -1.4, -1.57, 0.0])
+    return obstacles, q_start, q_goal
+
+
+def env_6d_real_setup() -> EnvTuple:
+    """6-D UR10e real-world replicated scene — shelf on table."""
+    return _make_ur10e_env(_scene_real_setup,
+                           base_position=[0.0, 0.0, _REAL_ROBOT_Z])
+
+
 ALL_6D_ENVS = {}
 if _HAS_PYBULLET:
     ALL_6D_ENVS = {
         '6d_tabletop':  env_6d_tabletop,
         '6d_shelf':     env_6d_shelf,
         '6d_cluttered': env_6d_cluttered,
+        '6d_real_setup': env_6d_real_setup,
     }
     ALL_ENVS.update(ALL_6D_ENVS)
 
@@ -1136,6 +1201,275 @@ def env_2d_random_forest_carm() -> EnvTuple:
 def env_3d_spheres_carm() -> EnvTuple:
     """3-D sphere field with Euclidean base for CARM learning."""
     return _carm_wrap(env_3d_sphere_field)
+
+def env_2d_random_world() -> EnvTuple:
+    """2-D "Random Rectangles" — matches BIT* (Gammell et al., ICRA 2015, Fig. 4).
+
+    Reproduces the exact PDT benchmark configuration:
+        Bounds:    [-0.5, 0.5]²  (side length 1)
+        Start:     (-0.1, -0.1)
+        Goal:      ( 0.4,  0.4)
+        Obstacles: 35 axis-aligned rectangles, each side ∈ [0.1, 0.2]
+    Obstacle anchors (lower-left corners) are drawn uniformly from
+    the workspace so that rectangles may partially extend outside
+    bounds.  Start and goal are guaranteed collision-free.
+
+    Metric: ObstacleInflatedMetric built from rectangle centres.
+
+    Returns
+    -------
+    (collision_checker, edge_cost, metric, x_start, x_goal, bounds)
+    """
+    x_start = np.array([-0.1, -0.1])
+    x_goal  = np.array([ 0.4,  0.4])
+    bounds  = [(-0.5, 0.5), (-0.5, 0.5)]
+
+    rng   = np.random.default_rng(2015_04)
+    n_obs = 35
+    min_side = 0.1
+    max_side = 0.2
+
+    rects   = []   # list of (lo, hi)
+    centres = []   # for the metric
+    for _ in range(n_obs * 50):
+        if len(rects) >= n_obs:
+            break
+        # Random anchor (lower-left corner) anywhere in workspace
+        ax_ = rng.uniform(-0.5, 0.5)
+        ay_ = rng.uniform(-0.5, 0.5)
+        w = rng.uniform(min_side, max_side)
+        h = rng.uniform(min_side, max_side)
+        lo = np.array([ax_, ay_])
+        hi = np.array([ax_ + w, ay_ + h])
+        cx, cy = ax_ + w / 2.0, ay_ + h / 2.0
+        # Ensure start and goal stay free (generous clearance)
+        clr = 0.06
+        if (lo[0] <= x_start[0] + clr and hi[0] >= x_start[0] - clr and
+            lo[1] <= x_start[1] + clr and hi[1] >= x_start[1] - clr):
+            continue
+        if (lo[0] <= x_goal[0] + clr and hi[0] >= x_goal[0] - clr and
+            lo[1] <= x_goal[1] + clr and hi[1] >= x_goal[1] - clr):
+            continue
+        rects.append((lo, hi))
+        centres.append(np.array([cx, cy]))
+
+    rects   = rects[:n_obs]
+    centres = np.array(centres[:n_obs])
+
+    def collision_free(x):
+        if x[0] < -0.5 or x[0] > 0.5 or x[1] < -0.5 or x[1] > 0.5:
+            return False
+        for lo, hi in rects:
+            if _point_in_rect_2d(x, lo, hi):
+                return False
+        return True
+
+    metric = ObstacleInflatedMetric(centres, sigma=0.10, alpha=8.0)
+    return collision_free, _make_edge_cost(metric), metric, x_start, x_goal, bounds
+
+
+def env_2d_dividing_wall() -> EnvTuple:
+    """2-D Dividing Wall-gaps (DW) — after APT* (Zhang et al., RA-L 2025, Fig. 5a).
+
+    Reproduces the exact PDT benchmark configuration:
+        Bounds:    [0, 1]²  (side length 1)
+        Start:     (0.05, 0.5)
+        Goal:      (0.95, 0.5)
+        Obstacles: A thin vertical wall at x=0.5 (width 0.02) with
+                   three narrow gaps at different heights.
+
+    Metric: ObstacleInflatedMetric on wall segment centres.
+
+    Returns
+    -------
+    (collision_checker, edge_cost, metric, x_start, x_goal, bounds)
+    """
+    x_start = np.array([0.05, 0.5])
+    x_goal  = np.array([0.95, 0.5])
+    bounds  = [(0.0, 1.0), (0.0, 1.0)]
+
+    # Vertical wall at x=0.49..0.51 (width 0.02) with three narrow gaps
+    wall_x_lo, wall_x_hi = 0.49, 0.51
+    # Wall segments (solid parts); three narrow gaps between them
+    # gap 1 (bottom): y ∈ [0.10, 0.13]  (width 0.03)
+    # gap 2 (middle): y ∈ [0.48, 0.51]  (width 0.03)
+    # gap 3 (upper):  y ∈ [0.85, 0.88]  (width 0.03)
+    wall_segments = [
+        (np.array([wall_x_lo, 0.00]), np.array([wall_x_hi, 0.10])),  # bottom
+        (np.array([wall_x_lo, 0.13]), np.array([wall_x_hi, 0.48])),  # lower-mid
+        (np.array([wall_x_lo, 0.51]), np.array([wall_x_hi, 0.85])),  # upper-mid
+        (np.array([wall_x_lo, 0.88]), np.array([wall_x_hi, 1.00])),  # top
+    ]
+
+    # Additional flanking blocks to make it more interesting
+    flanking = [
+        (np.array([0.25, 0.70]), np.array([0.35, 0.85])),
+        (np.array([0.65, 0.15]), np.array([0.75, 0.30])),
+    ]
+
+    all_rects = wall_segments + flanking
+
+    # Centres for metric (wall segment midpoints + flank midpoints)
+    centres = np.array([
+        (lo + hi) / 2.0 for lo, hi in all_rects
+    ])
+
+    def collision_free(x):
+        if x[0] < 0.0 or x[0] > 1.0 or x[1] < 0.0 or x[1] > 1.0:
+            return False
+        for lo, hi in all_rects:
+            if _point_in_rect_2d(x, lo, hi):
+                return False
+        return True
+
+    metric = ObstacleInflatedMetric(centres, sigma=0.12, alpha=8.0)
+    return collision_free, _make_edge_cost(metric), metric, x_start, x_goal, bounds
+
+
+ALL_2D_ENVS['2d_dividing_wall'] = env_2d_dividing_wall
+ALL_ENVS['2d_dividing_wall'] = env_2d_dividing_wall
+
+
+def env_3d_wall_and_gaps() -> EnvTuple:
+    """3-D Wall & Gaps — a dividing wall in 3D with two offset holes.
+
+    Bounds [0,1]³.  A solid wall at x=0.5 (thickness 0.06) with two
+    cylindrical holes at different (y,z) locations forces the planner
+    to choose between two narrow passages.  Two box obstacles flank
+    the wall to increase difficulty.
+
+    Metric: DiagonalAnisotropicMetric(weights=[5.0, 1.0, 1.5]).
+
+    Returns
+    -------
+    (collision_checker, edge_cost, metric, x_start, x_goal, bounds)
+    """
+    x_start = np.array([0.1, 0.5, 0.5])
+    x_goal  = np.array([0.9, 0.5, 0.5])
+    bounds  = [(0.0, 1.0), (0.0, 1.0), (0.0, 1.0)]
+
+    wall_lo_x, wall_hi_x = 0.47, 0.53
+    # Two offset holes in the wall
+    holes = [
+        (np.array([0.35, 0.35]), 0.10),  # hole 1 at (y=0.35, z=0.35)
+        (np.array([0.70, 0.70]), 0.10),  # hole 2 at (y=0.70, z=0.70)
+    ]
+    # Flanking box obstacles
+    boxes = [
+        (np.array([0.20, 0.60, 0.00]), np.array([0.35, 0.85, 0.40])),
+        (np.array([0.65, 0.15, 0.60]), np.array([0.80, 0.40, 1.00])),
+        (np.array([0.30, 0.00, 0.60]), np.array([0.45, 0.25, 0.90])),
+        (np.array([0.55, 0.75, 0.10]), np.array([0.70, 1.00, 0.40])),
+    ]
+
+    def collision_free(x):
+        if np.any(x < 0.0) or np.any(x > 1.0):
+            return False
+        # Wall collision
+        if wall_lo_x <= x[0] <= wall_hi_x:
+            in_hole = False
+            for hc, hr in holes:
+                dist_yz = float(np.sqrt((x[1] - hc[0])**2 + (x[2] - hc[1])**2))
+                if dist_yz <= hr:
+                    in_hole = True
+                    break
+            if not in_hole:
+                return False
+        # Box obstacles
+        for lo, hi in boxes:
+            if _point_in_box_3d(x, lo, hi):
+                return False
+        return True
+
+    metric = DiagonalAnisotropicMetric(weights=[5.0, 1.0, 1.5])
+    return collision_free, _make_edge_cost(metric), metric, x_start, x_goal, bounds
+
+
+ALL_3D_ENVS['3d_wall_and_gaps'] = env_3d_wall_and_gaps
+ALL_ENVS['3d_wall_and_gaps'] = env_3d_wall_and_gaps
+
+
+def env_3d_box_field() -> EnvTuple:
+    """3-D Box Field — dense axis-aligned boxes with clearance corridors.
+
+    Bounds [0,1]³.  Ten box obstacles placed in a structured grid
+    pattern with narrow corridors between them.  The planner must
+    navigate through the corridors to reach the goal.
+
+    Metric: ObstacleInflatedMetric(σ=0.20, α=10.0).
+
+    Returns
+    -------
+    (collision_checker, edge_cost, metric, x_start, x_goal, bounds)
+    """
+    x_start = np.array([0.05, 0.05, 0.05])
+    x_goal  = np.array([0.95, 0.95, 0.95])
+    bounds  = [(0.0, 1.0), (0.0, 1.0), (0.0, 1.0)]
+
+    boxes = [
+        # Ground-level blocking row
+        (np.array([0.15, 0.15, 0.00]), np.array([0.35, 0.35, 0.45])),
+        (np.array([0.45, 0.00, 0.00]), np.array([0.65, 0.25, 0.35])),
+        (np.array([0.70, 0.30, 0.00]), np.array([0.90, 0.55, 0.30])),
+        # Mid-level obstacles
+        (np.array([0.10, 0.50, 0.30]), np.array([0.30, 0.75, 0.60])),
+        (np.array([0.40, 0.40, 0.35]), np.array([0.60, 0.65, 0.65])),
+        (np.array([0.65, 0.55, 0.25]), np.array([0.85, 0.80, 0.55])),
+        # Upper-level obstacles
+        (np.array([0.20, 0.20, 0.60]), np.array([0.45, 0.45, 0.85])),
+        (np.array([0.50, 0.60, 0.65]), np.array([0.75, 0.85, 0.90])),
+        (np.array([0.10, 0.70, 0.55]), np.array([0.30, 0.95, 0.80])),
+        (np.array([0.70, 0.10, 0.50]), np.array([0.90, 0.35, 0.80])),
+    ]
+
+    centres = np.array([(lo + hi) / 2.0 for lo, hi in boxes])
+
+    def collision_free(x):
+        if np.any(x < 0.0) or np.any(x > 1.0):
+            return False
+        for lo, hi in boxes:
+            if _point_in_box_3d(x, lo, hi):
+                return False
+        return True
+
+    metric = ObstacleInflatedMetric(centres, sigma=0.20, alpha=10.0)
+    return collision_free, _make_edge_cost(metric), metric, x_start, x_goal, bounds
+
+
+ALL_3D_ENVS['3d_box_field'] = env_3d_box_field
+ALL_ENVS['3d_box_field'] = env_3d_box_field
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Euclidean-cost variants (same obstacles, Euclidean metric)
+# ═══════════════════════════════════════════════════════════════════════
+
+def _euclidean_wrap(env_fn) -> EnvTuple:
+    """Return the same environment but with a pure Euclidean cost metric."""
+    coll, _, orig_metric, xs, xg, bounds = env_fn()
+    dim = len(xs)
+    euclid_metric = EuclideanMetric(dim)
+    return coll, _make_edge_cost(euclid_metric), euclid_metric, xs, xg, bounds
+
+
+def env_2d_obstacle_euclidean() -> EnvTuple:
+    """2-D obstacle env with Euclidean cost (6 circles, same geometry)."""
+    return _euclidean_wrap(env_2d_obstacle_inflated)
+
+
+def env_2d_narrow_euclidean() -> EnvTuple:
+    """2-D narrow passage env with Euclidean cost."""
+    return _euclidean_wrap(env_2d_narrow_passage)
+
+
+def env_2d_maze_euclidean() -> EnvTuple:
+    """2-D maze env with Euclidean cost."""
+    return _euclidean_wrap(env_2d_maze)
+
+
+def env_2d_forest_euclidean() -> EnvTuple:
+    """2-D random forest env with Euclidean cost."""
+    return _euclidean_wrap(env_2d_random_forest)
 
 
 CARM_ENVS = {

@@ -107,6 +107,52 @@ def _draw_obstacles_2d(ax, env_name: str):
         for c in centres[:25]:
             ax.add_patch(Circle(c, 0.04, fc='black', ec='black', alpha=0.7))
 
+    elif env_name == '2d_random_world':
+        rng = np.random.default_rng(2015_04)
+        n_obs = 35
+        x_start = np.array([-0.1, -0.1])
+        x_goal  = np.array([ 0.4,  0.4])
+        clr = 0.06
+        rects = []
+        for _ in range(n_obs * 50):
+            if len(rects) >= n_obs:
+                break
+            ax_ = rng.uniform(-0.5, 0.5)
+            ay_ = rng.uniform(-0.5, 0.5)
+            w = rng.uniform(0.1, 0.2)
+            h = rng.uniform(0.1, 0.2)
+            lo = np.array([ax_, ay_])
+            hi = np.array([ax_ + w, ay_ + h])
+            if (lo[0] <= x_start[0] + clr and hi[0] >= x_start[0] - clr and
+                lo[1] <= x_start[1] + clr and hi[1] >= x_start[1] - clr):
+                continue
+            if (lo[0] <= x_goal[0] + clr and hi[0] >= x_goal[0] - clr and
+                lo[1] <= x_goal[1] + clr and hi[1] >= x_goal[1] - clr):
+                continue
+            rects.append((lo, hi))
+        for lo, hi in rects[:n_obs]:
+            w, h = hi[0] - lo[0], hi[1] - lo[1]
+            ax.add_patch(Rectangle(lo, w, h, fc='#404040', ec='#303030', alpha=0.85))
+
+    elif env_name == '2d_dividing_wall':
+        wall_x_lo, wall_x_hi = 0.49, 0.51
+        wall_segments = [
+            (np.array([wall_x_lo, 0.00]), np.array([wall_x_hi, 0.10])),
+            (np.array([wall_x_lo, 0.13]), np.array([wall_x_hi, 0.48])),
+            (np.array([wall_x_lo, 0.51]), np.array([wall_x_hi, 0.85])),
+            (np.array([wall_x_lo, 0.88]), np.array([wall_x_hi, 1.00])),
+        ]
+        flanking = [
+            (np.array([0.25, 0.70]), np.array([0.35, 0.85])),
+            (np.array([0.65, 0.15]), np.array([0.75, 0.30])),
+        ]
+        for lo, hi in wall_segments:
+            w, h = hi[0] - lo[0], hi[1] - lo[1]
+            ax.add_patch(Rectangle(lo, w, h, fc='#333333', ec='#1a1a1a', alpha=0.9))
+        for lo, hi in flanking:
+            w, h = hi[0] - lo[0], hi[1] - lo[1]
+            ax.add_patch(Rectangle(lo, w, h, fc='#404040', ec='#303030', alpha=0.85))
+
     elif env_name == '2d_terrain':
         # Terrain peaks at sin²(3πx)·sin²(3πy) maxima — high-cost zones (no hard obstacles)
         for cx in [1/6, 0.5, 5/6]:
