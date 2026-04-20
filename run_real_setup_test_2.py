@@ -21,11 +21,11 @@ import pybullet as p
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from manipulator_env.pybullet_env import UR10eRobotiqEnv
-from manipulator_env.planner_interface import plan_and_execute
+from manipulator_env.planner_interface import plan_and_execute, interpolate_path
 from rit_star.metric import DiagonalAnisotropicMetric
 
 # Fast inertia-based diagonal metric (no PyBullet calls per evaluation)
-_UR10E_INERTIAS = np.array([7.369, 13.051, 3.989, 2.1, 1.98, 0.615])
+_UR10E_INERTIAS = np.array([7.778, 12.93, 3.87, 1.96, 1.96, 0.202])
 _UR10E_WEIGHTS = (_UR10E_INERTIAS / _UR10E_INERTIAS.max()).tolist()
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -36,7 +36,7 @@ TABLE_SURFACE_Z = 0.75
 SLAB_THICKNESS  = 0.01990
 ROBOT_BASE_Z    = TABLE_SURFACE_Z + SLAB_THICKNESS  # 0.76990
 
-SHELF_REL_X =  0.67138
+SHELF_REL_X = -0.67138
 SHELF_REL_Y = -0.68403
 SHELF_REL_Z = -0.01590
 
@@ -49,8 +49,8 @@ SHELF_D = 0.24
 SHELF_H = 0.54
 SHELF_T = 0.02
 
-TABLE_LEN = 1.50
-TABLE_WID = 1.40
+TABLE_LEN = 1.00
+TABLE_WID = 1.50
 TABLE_THK = 0.05
 
 CLR_TABLE = [0.60, 0.60, 0.60, 1.0]
@@ -58,8 +58,9 @@ CLR_SLAB  = [0.35, 0.35, 0.40, 1.0]
 CLR_SHELF = [0.92, 0.92, 0.92, 1.0]
 CLR_LEGS  = [0.25, 0.25, 0.28, 1.0]
 
-TABLE_CX = SHELF_X / 2
-TABLE_CY = SHELF_Y / 2
+# Table centre: only 16 cm of the table extends along +x from the robot base
+TABLE_CX = -0.34
+TABLE_CY = -0.07
 
 # Gripper depth (EE origin to finger tips along +x_ee)
 GRIPPER_DEPTH = 0.1045
@@ -69,6 +70,7 @@ GRIPPER_DEPTH = 0.1045
 # ═══════════════════════════════════════════════════════════════════════
 
 def build_shelf_obstacles():
+    """Shelf rotated 90°: width→x, depth→y, open face at +y (toward robot)."""
     sx, sy, sz = SHELF_X, SHELF_Y, SHELF_Z
     W, D, H, t = SHELF_W, SHELF_D, SHELF_H, SHELF_T
     c = CLR_SHELF
@@ -76,24 +78,30 @@ def build_shelf_obstacles():
         {"type": "box", "color": CLR_TABLE,
          "pos": [TABLE_CX, TABLE_CY, TABLE_SURFACE_Z - TABLE_THK / 2],
          "half_extents": [TABLE_LEN / 2, TABLE_WID / 2, TABLE_THK / 2]},
+        # Back wall (at −y end, full height)
         {"type": "box", "color": c,
-         "pos": [sx + D / 2 - t / 2, sy, sz + H / 2],
-         "half_extents": [t / 2, W / 2, H / 2]},
+         "pos": [sx, sy - D / 2 + t / 2, sz + H / 2],
+         "half_extents": [W / 2, t / 2, H / 2]},
+        # Left side wall (−x side)
         {"type": "box", "color": c,
-         "pos": [sx, sy - W / 2 + t / 2, sz + H / 2],
-         "half_extents": [D / 2, t / 2, H / 2]},
+         "pos": [sx - W / 2 + t / 2, sy, sz + H / 2],
+         "half_extents": [t / 2, D / 2, H / 2]},
+        # Right side wall (+x side)
         {"type": "box", "color": c,
-         "pos": [sx, sy + W / 2 - t / 2, sz + H / 2],
-         "half_extents": [D / 2, t / 2, H / 2]},
+         "pos": [sx + W / 2 - t / 2, sy, sz + H / 2],
+         "half_extents": [t / 2, D / 2, H / 2]},
+        # Bottom panel
         {"type": "box", "color": c,
          "pos": [sx, sy, sz + t / 2],
-         "half_extents": [D / 2, W / 2, t / 2]},
+         "half_extents": [W / 2, D / 2, t / 2]},
+        # Middle shelf
         {"type": "box", "color": c,
          "pos": [sx, sy, sz + H / 2],
-         "half_extents": [D / 2, W / 2, t / 2]},
+         "half_extents": [W / 2, D / 2, t / 2]},
+        # Top panel
         {"type": "box", "color": c,
          "pos": [sx, sy, sz + H - t / 2],
-         "half_extents": [D / 2, W / 2, t / 2]},
+         "half_extents": [W / 2, D / 2, t / 2]},
     ]
     return obstacles
 
@@ -242,13 +250,13 @@ def compute_place_on_shelf_top_ik(env):
     """Compute IK for placing the bottle on top of the shelf.
 
     The gripper keeps the SAME orientation as the start (side-grasp):
-        x_ee = [1, 0, 0]  (approach = +x, into shelf)
-        y_ee = [0, ±1, 0] (fingers open horizontally)
+        x_ee = [0, -1, 0]  (approach = −y, into shelf)
+        y_ee = [±1, 0, 0]  (fingers open horizontally along ±x)
 
-    The EE position is above the shelf top panel.  Since x_ee = +x,
-    the finger tips are GRIPPER_DEPTH ahead in +x from the EE origin.
+    The EE position is above the shelf top panel.  Since x_ee = −y,
+    the finger tips are GRIPPER_DEPTH ahead in −y from the EE origin.
     We position the grasp centre (finger tips) above the shelf top,
-    then offset the EE back by GRIPPER_DEPTH along −x.
+    then offset the EE back by GRIPPER_DEPTH along +y.
     """
     from scipy.spatial.transform import Rotation as Rot
     cid = env.physics_client
@@ -261,16 +269,16 @@ def compute_place_on_shelf_top_ik(env):
     # Grasp centre above shelf centre
     grasp_centre = np.array([SHELF_X, SHELF_Y, place_z])
 
-    # EE is GRIPPER_DEPTH behind the grasp centre along −x (approach axis)
+    # EE is GRIPPER_DEPTH behind the grasp centre along +y (opposite of approach −y)
     ee_target = grasp_centre.copy()
-    ee_target[0] -= GRIPPER_DEPTH
+    ee_target[1] += GRIPPER_DEPTH
 
-    # Same side-grasp orientation as Phase 1 start config:
-    #   x_ee = [1,0,0], y_ee = [0,±1,0], z_ee = [0,0,∓1]
+    # Same side-grasp orientation as Phase 1:
+    #   x_ee = [0,-1,0], y_ee = [±1,0,0], z_ee = cross(x_ee, y_ee)
     orns = []
     for sign in [+1, -1]:
-        x_ee = np.array([1.0, 0.0, 0.0])
-        y_ee = np.array([0.0, sign * 1.0, 0.0])
+        x_ee = np.array([0.0, -1.0, 0.0])
+        y_ee = np.array([sign * 1.0, 0.0, 0.0])
         z_ee = np.cross(x_ee, y_ee)
         R = np.column_stack([x_ee, y_ee, z_ee])
         q_orn = Rot.from_matrix(R).as_quat().tolist()
@@ -339,7 +347,65 @@ def main():
     # Build shelf obstacles (includes table)
     shelf_obstacles = build_shelf_obstacles()
 
-    # Create environment
+    # ── Start config: goal config from Phase 1 ──
+    q_start = np.array([-2.813, -0.892, 1.726, -3.975, -0.329, 1.570])
+
+    # ── Phase 1: Headless IK computation for place pose ──────────
+    print("[IK] Loading PyBullet (headless) for place IK computation ...")
+    ik_env = UR10eRobotiqEnv(
+        gui=False,
+        obstacles=shelf_obstacles,
+        base_position=[0.0, 0.0, ROBOT_BASE_Z],
+    )
+    ik_cid = ik_env.physics_client
+
+    # Get EE pose at start config to place bottle at fingertips
+    ik_env.set_joint_positions(q_start)
+    ee_pos_start, ee_orn_start = ik_env.get_ee_pose(q_start)
+    R_start = np.array(p.getMatrixFromQuaternion(ee_orn_start)).reshape(3, 3)
+    x_ee = R_start[:, 0]  # approach/finger direction
+
+    # Bottle position: at the grasp centre, shifted 3.5 cm further along approach to avoid penetration
+    bottle_start_pos = ee_pos_start + (GRIPPER_DEPTH + 0.035) * x_ee
+    bottle_start_orn = p.getQuaternionFromEuler([0, 0, np.deg2rad(-60)])
+
+    # Load mustard bottle in headless env
+    mustard_urdf = "/home/muhayy/Documents/forsight-tamp/assets/ycb_objects/ycb_assets/006_mustard_bottle.urdf"
+    ik_bottle_id = p.loadURDF(
+        mustard_urdf,
+        basePosition=bottle_start_pos.tolist(),
+        baseOrientation=bottle_start_orn,
+        useFixedBase=False,
+        globalScaling=0.1,
+        physicsClientId=ik_cid,
+    )
+
+    # Attach bottle and patch collision checking in headless env
+    attach_bottle_to_gripper(ik_env, ik_bottle_id)
+    # Disable robot-bottle collision (they're attached)
+    n_joints_ik = p.getNumJoints(ik_env.robot_id, physicsClientId=ik_cid)
+    for link_idx in range(-1, n_joints_ik):
+        p.setCollisionFilterPair(
+            ik_env.robot_id, ik_bottle_id, link_idx, -1, 0,
+            physicsClientId=ik_cid,
+        )
+    patch_collision_check(ik_env, ik_bottle_id)
+
+    # Verify start is collision-free
+    assert ik_env.is_collision_free(q_start), "Start config is in collision!"
+
+    # Compute place goal
+    q_goal = compute_place_on_shelf_top_ik(ik_env)
+    assert ik_env.is_collision_free(q_goal), "Goal config is in collision!"
+
+    pos_g, orn_g = ik_env.get_ee_pose(q_goal)
+    print(f"[IK] Goal found — q_goal: [{', '.join(f'{v:.3f}' for v in q_goal)}]")
+    print(f"[IK] Goal EE pos: [{pos_g[0]:.3f}, {pos_g[1]:.3f}, {pos_g[2]:.3f}]")
+
+    ik_env.disconnect()
+    print("[IK] Headless env disconnected.\n")
+
+    # ── Phase 2: GUI environment + planner ────────────────────────
     print("[ENV] Loading PyBullet (GUI) ...")
     env = UR10eRobotiqEnv(
         gui=True,
@@ -351,24 +417,10 @@ def main():
     # Add visual scenery
     add_scenery(cid)
 
-    # ── Start config: grasp pose from Phase 1 ──
-    q_start = np.array([-1.275213, -0.892989, 1.727716, -3.975099, -0.295581, 1.569577])
-
     # Set robot to start config (grasp pose)
     env.set_joint_positions(q_start)
 
-    # Get EE pose at start config to place bottle at fingertips
-    ee_pos_start, ee_orn_start = env.get_ee_pose(q_start)
-    R_start = np.array(p.getMatrixFromQuaternion(ee_orn_start)).reshape(3, 3)
-    x_ee = R_start[:, 0]  # approach/finger direction
-
-    # Bottle position: at the grasp centre (fingertips = EE + GRIPPER_DEPTH along x_ee)
-    bottle_start_pos = ee_pos_start + GRIPPER_DEPTH * x_ee
-    # Use same orientation as Phase 1 (upright)
-    bottle_start_orn = p.getQuaternionFromEuler([0, 0, 0])
-
     # Load mustard bottle at the grasp position
-    mustard_urdf = "/home/muhayy/Documents/forsight-tamp/assets/ycb_objects/ycb_assets/006_mustard_bottle.urdf"
     mustard_id = p.loadURDF(
         mustard_urdf,
         basePosition=bottle_start_pos.tolist(),
@@ -398,11 +450,8 @@ def main():
     patch_collision_check(env, mustard_id)
     print("[PATCH] Collision check now includes attached bottle vs obstacles")
 
-    # Verify start is collision-free
+    # Verify start and goal are collision-free in GUI env
     assert env.is_collision_free(q_start), "Start config is in collision!"
-
-    # ── Goal config: place bottle on top of shelf ──
-    q_goal = compute_place_on_shelf_top_ik(env)
     assert env.is_collision_free(q_goal), "Goal config is in collision!"
 
     # Get poses for display
@@ -417,13 +466,59 @@ def main():
 
     # Configure camera
     p.resetDebugVisualizerCamera(
-        cameraDistance=2.2,
-        cameraYaw=150,
-        cameraPitch=-25,
-        cameraTargetPosition=[SHELF_X / 2, SHELF_Y / 2, 0.95],
+        cameraDistance=1.4,
+        cameraYaw=-36.0,
+        cameraPitch=-20.6,
+        cameraTargetPosition=[0.363, -0.358, 1.21],
         physicsClientId=cid,
     )
     p.configureDebugVisualizer(p.COV_ENABLE_SHADOWS, 0, physicsClientId=cid)
+
+    # ── Infinite white tiled floor ─────────────────────────────────
+    floor_he = [50.0, 50.0, 0.01]
+    floor_vis = p.createVisualShape(p.GEOM_BOX, halfExtents=floor_he,
+                                    rgbaColor=[1.0, 1.0, 1.0, 1.0],
+                                    physicsClientId=cid)
+    p.createMultiBody(baseMass=0, baseCollisionShapeIndex=-1,
+                      baseVisualShapeIndex=floor_vis,
+                      basePosition=[0.0, 0.0, 0.0],
+                      physicsClientId=cid)
+    p.changeVisualShape(env.plane_id, -1,
+                        rgbaColor=[1.0, 1.0, 1.0, 1.0],
+                        physicsClientId=cid)
+
+    # ── Robot colours ─────────────────────────────────────────────
+    UR_SILVER = [0.75, 0.75, 0.75, 1.0]
+    UR_DARK   = [0.22, 0.22, 0.22, 1.0]
+    UR_BLUE   = [0.00, 0.34, 0.68, 1.0]
+    RQ_DARK   = [0.15, 0.15, 0.15, 1.0]
+    RQ_BLACK  = [0.08, 0.08, 0.08, 1.0]
+    rid = env.robot_id
+    n = p.getNumJoints(rid, physicsClientId=cid)
+    link_name_to_idx = {}
+    for i in range(n):
+        info = p.getJointInfo(rid, i, physicsClientId=cid)
+        link_name_to_idx[info[12].decode("utf-8")] = i
+    p.changeVisualShape(rid, -1, rgbaColor=UR_DARK, physicsClientId=cid)
+    ur_colour_map = {
+        "base_link_inertia": UR_DARK,
+        "shoulder_link":     UR_BLUE,
+        "upper_arm_link":    UR_SILVER,
+        "forearm_link":      UR_SILVER,
+        "wrist_1_link":      UR_DARK,
+        "wrist_2_link":      UR_SILVER,
+        "wrist_3_link":      UR_DARK,
+        "flange":            UR_DARK,
+        "tool0":             UR_DARK,
+    }
+    for lname, colour in ur_colour_map.items():
+        if lname in link_name_to_idx:
+            p.changeVisualShape(rid, link_name_to_idx[lname],
+                                rgbaColor=colour, physicsClientId=cid)
+    for lname, lidx in link_name_to_idx.items():
+        if "robotiq" in lname:
+            clr = RQ_BLACK if "finger_tip" in lname else RQ_DARK
+            p.changeVisualShape(rid, lidx, rgbaColor=clr, physicsClientId=cid)
 
     shelf_top_z = SHELF_Z + SHELF_H
     print("=" * 62)
@@ -518,16 +613,28 @@ def main():
     else:
         print("\n[RESULT] No path found.")
 
-    # Keep GUI alive
-    print("\n  Press Ctrl+C to exit.")
-    try:
-        while True:
-            p.stepSimulation(physicsClientId=cid)
-            time.sleep(1 / 240)
-    except KeyboardInterrupt:
-        print("\nShutting down ...")
-    finally:
-        env.disconnect()
+    # ── Loop path animation until window is closed ────────────
+    if path:
+        path_fine = interpolate_path(path, max_step=0.02)
+        print("\n[LOOP] Replaying path (close PyBullet window to exit) ...")
+        try:
+            while p.isConnected(physicsClientId=cid):
+                env.set_joint_positions(q_start)
+                time.sleep(0.3)
+                env.visualize_path(path_fine, delay=0.02, trail=False)
+                time.sleep(0.5)
+        except (KeyboardInterrupt, Exception):
+            pass
+    else:
+        print("\n  Press Ctrl+C to exit.")
+        try:
+            while p.isConnected(physicsClientId=cid):
+                p.stepSimulation(physicsClientId=cid)
+                time.sleep(1 / 240)
+        except (KeyboardInterrupt, Exception):
+            pass
+    print("Shutting down ...")
+    env.disconnect()
 
 
 if __name__ == "__main__":
