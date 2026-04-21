@@ -215,6 +215,7 @@ def main():
         gui=True,
         obstacles=wall_obstacles,
         base_position=[0.0, 0.0, ROBOT_BASE_Z],
+        base_orientation=p.getQuaternionFromEuler([0, 0, np.pi]),
     )
     cid = env.physics_client
     add_scenery(cid)
@@ -287,14 +288,17 @@ def main():
     # goal_target  = [WALL_X + x_offset, target_y, target_z]   # right (+x) side
 
     # Place can and grasp target on the -y side of the wall in this frame.
+    # Can shifted 10 cm toward the −y table edge so the goal pose here
+    # matches the start pose of run_wall_carry.py exactly.
     side_clearance = WALL_W / 2 + 0.50
     can_x = WALL_X
-    can_y = WALL_Y - side_clearance
-    can_z = TABLE_SURFACE_Z + 0.055   # half can height
+    can_y = WALL_Y - side_clearance - 0.10   # −0.691
+    can_z = TABLE_SURFACE_Z + 0.055          # half can height
     can_pos = [can_x, can_y, can_z]
 
     # Goal is a top grasp of the can with fingers pointing straight downward.
-    goal_target = [can_x, can_y, can_z + GRASP_OFFSET_Z]
+    # +1 cm lift so EE z = 0.980 — identical to run_wall_carry.py start.
+    goal_target = [can_x, can_y, can_z + GRASP_OFFSET_Z + 0.01]
     print(f"[IK]  Computing goal IK   target={[round(v,3) for v in goal_target]}")
     q_goal = find_ik(env, goal_target, side_label="GOAL (-y)",
                      desired_orn=TOP_DOWN_ORN, pos_tol=0.02)
@@ -304,14 +308,23 @@ def main():
         env.disconnect()
         return
 
-    # Start is on the opposite (+y) side of the wall from the goal.
-    start_target = [can_x, WALL_Y + side_clearance - 0.15, ROBOT_BASE_Z + 0.33]
-    print(f"[IK]  Computing start IK  target={[round(v,3) for v in start_target]}")
-    q_start = find_ik(env, start_target, side_label="START (+y)")
-    if q_start is None:
-        print("[FATAL] Could not find collision-free start IK.")
-        env.disconnect()
-        return
+    # Start = goal with shoulder-pan (joint 1) flipped by π, so the arm
+    # is the mirror image on the opposite (+y) side of the wall. Only
+    # joint 1 needs to rotate to get from start to goal.
+    q_start = q_goal.copy()
+    q_start[0] = q_goal[0] + np.pi
+    if q_start[0] > np.pi:
+        q_start[0] -= 2 * np.pi
+    if not env.is_collision_free(q_start):
+        # fall back: try rotating the other way
+        q_start = q_goal.copy()
+        q_start[0] = q_goal[0] - np.pi
+        if q_start[0] < -np.pi:
+            q_start[0] += 2 * np.pi
+        if not env.is_collision_free(q_start):
+            print("[FATAL] Mirror start config is in collision.")
+            env.disconnect()
+            return
     print(f"[START] Using start configuration: [{', '.join(f'{v:.4f}' for v in q_start)}]")
 
     assert env.is_collision_free(q_start), "Start config is in collision!"
@@ -431,6 +444,8 @@ def main():
             f.write(f"  Waypoints : {len(path)}\n")
             f.write(f"  Path cost : {cost:.6f}\n")
             f.write(f"  DOF       : 6\n\n")
+            f.write(f"  q_start : [{', '.join(f'{v:+.6f}' for v in q_start)}]\n")
+            f.write(f"  q_goal  : [{', '.join(f'{v:+.6f}' for v in q_goal)}]\n\n")
             f.write("  Each row: joint_1  joint_2  joint_3  joint_4  joint_5  joint_6  (radians)\n")
             f.write("-" * 62 + "\n")
             for i, q in enumerate(path):
@@ -443,20 +458,33 @@ def main():
         path_fine = interpolate_path(path, max_step=0.02)
         env.set_joint_positions(q_start)
         time.sleep(0.5)
-        print("[ANIM] Animating path ...")
+        print("[ANIM] Animating path (first pass with trail) ...")
         env.visualize_path(path_fine, delay=0.02, trail=True)
+        time.sleep(1.0)
+
+        print("\n[LOOP] Replaying path (close PyBullet window or Ctrl+C to exit) ...")
+        try:
+            while p.isConnected(physicsClientId=cid):
+                env.set_joint_positions(q_start)
+                p.stepSimulation(physicsClientId=cid)
+                time.sleep(0.5)
+                env.visualize_path(path_fine, delay=0.02, trail=False)
+                time.sleep(1.0)
+        except (KeyboardInterrupt, Exception):
+            print("\nShutting down ...")
+        finally:
+            env.disconnect()
     else:
         print("\n[RESULT] No path found.")
-
-    print("\n  Press Ctrl+C to exit.")
-    try:
-        while True:
-            p.stepSimulation(physicsClientId=cid)
-            time.sleep(1 / 240)
-    except KeyboardInterrupt:
-        print("\nShutting down ...")
-    finally:
-        env.disconnect()
+        print("\n  Press Ctrl+C to exit.")
+        try:
+            while True:
+                p.stepSimulation(physicsClientId=cid)
+                time.sleep(1 / 240)
+        except KeyboardInterrupt:
+            print("\nShutting down ...")
+        finally:
+            env.disconnect()
 
 
 if __name__ == "__main__":

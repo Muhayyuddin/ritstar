@@ -23,6 +23,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from manipulator_env.pybullet_env import UR10eRobotiqEnv
 from manipulator_env.planner_interface import plan_and_execute, interpolate_path
 from rit_star.metric import DiagonalAnisotropicMetric
+from run_real_setup_test import compute_side_grasp_ik as _compute_phase1_goal_ik
 
 # Fast inertia-based diagonal metric (no PyBullet calls per evaluation)
 _UR10E_INERTIAS = np.array([7.778, 12.93, 3.87, 1.96, 1.96, 0.202])
@@ -246,17 +247,13 @@ def patch_collision_check(env, mustard_id):
 # Compute a "place on top of shelf" IK
 # ═══════════════════════════════════════════════════════════════════════
 
-def compute_place_on_shelf_top_ik(env):
+def compute_place_on_shelf_top_ik(env, q_seed=None):
     """Compute IK for placing the bottle on top of the shelf.
 
-    The gripper keeps the SAME orientation as the start (side-grasp):
-        x_ee = [0, -1, 0]  (approach = −y, into shelf)
-        y_ee = [±1, 0, 0]  (fingers open horizontally along ±x)
-
-    The EE position is above the shelf top panel.  Since x_ee = −y,
-    the finger tips are GRIPPER_DEPTH ahead in −y from the EE origin.
-    We position the grasp centre (finger tips) above the shelf top,
-    then offset the EE back by GRIPPER_DEPTH along +y.
+    If ``q_seed`` is provided, collision-free candidates are scored by
+    joint-space distance to the seed and the closest one is returned.
+    This keeps the place pose in the same kinematic branch as the start,
+    avoiding long planner detours (elbow/shoulder flips).
     """
     from scipy.spatial.transform import Rotation as Rot
     cid = env.physics_client
@@ -266,25 +263,23 @@ def compute_place_on_shelf_top_ik(env):
     shelf_top_z = SHELF_Z + SHELF_H  # 1.294 m
     place_z = shelf_top_z + 0.10     # 10 cm above shelf top
 
-    # Grasp centre above shelf centre
     grasp_centre = np.array([SHELF_X, SHELF_Y, place_z])
-
-    # EE is GRIPPER_DEPTH behind the grasp centre along +y (opposite of approach −y)
     ee_target = grasp_centre.copy()
     ee_target[1] += GRIPPER_DEPTH
 
     # Same side-grasp orientation as Phase 1:
-    #   x_ee = [0,-1,0], y_ee = [±1,0,0], z_ee = cross(x_ee, y_ee)
     orns = []
     for sign in [+1, -1]:
         x_ee = np.array([0.0, -1.0, 0.0])
         y_ee = np.array([sign * 1.0, 0.0, 0.0])
         z_ee = np.cross(x_ee, y_ee)
         R = np.column_stack([x_ee, y_ee, z_ee])
-        q_orn = Rot.from_matrix(R).as_quat().tolist()
-        orns.append(q_orn)
+        orns.append(Rot.from_matrix(R).as_quat().tolist())
 
-    seeds = [
+    seeds = []
+    if q_seed is not None:
+        seeds.append(list(np.asarray(q_seed).tolist()))
+    seeds.extend([
         [0.0, -np.pi / 2, np.pi / 2, -np.pi / 2, -np.pi / 2, 0.0],
         [-np.pi / 4, -np.pi / 2, np.pi / 2, -np.pi / 2, -np.pi / 2, 0.0],
         [-np.pi / 2, -np.pi / 3, np.pi / 3, -np.pi / 2, -np.pi / 2, 0.0],
@@ -296,14 +291,14 @@ def compute_place_on_shelf_top_ik(env):
         [-1.2, -0.8, 1.2, -0.4, -1.2, 0.0],
         [-0.5, -1.0, 0.8, -1.5, -1.57, 1.57],
         [-1.0, -1.0, 1.0, -1.57, -1.57, 1.57],
-    ]
+    ])
 
+    candidates = []
     best_q = None
 
     for oi, orn_q in enumerate(orns):
         for si, seed in enumerate(seeds):
             env.set_joint_positions(np.array(seed))
-
             rest = list(seed) + [0.0] * (n_movable - 6)
             q_ik = p.calculateInverseKinematics(
                 bodyUniqueId=env.robot_id,
@@ -319,24 +314,32 @@ def compute_place_on_shelf_top_ik(env):
                 physicsClientId=cid,
             )
             q_arm = np.array(q_ik[:6])
-
-            if env.is_collision_free(q_arm):
-                ee_actual, ee_orn_q = env.get_ee_pose(q_arm)
-                err = np.linalg.norm(ee_target - ee_actual)
-                if err < 0.05:
-                    R = np.array(p.getMatrixFromQuaternion(ee_orn_q)).reshape(3, 3)
-                    print(f"[IK]  Collision-free PLACE pose found!")
-                    print(f"      orn_idx={oi}, seed={si}")
-                    print(f"      EE pos : [{ee_actual[0]:.3f}, {ee_actual[1]:.3f}, {ee_actual[2]:.3f}]")
-                    print(f"      x_ee (approach): [{R[0,0]:.3f}, {R[1,0]:.3f}, {R[2,0]:.3f}]")
-                    print(f"      y_ee (open):     [{R[0,1]:.3f}, {R[1,1]:.3f}, {R[2,1]:.3f}]")
-                    return q_arm
-
             if best_q is None:
                 best_q = q_arm
+            if env.is_collision_free(q_arm):
+                ee_actual, _ = env.get_ee_pose(q_arm)
+                if np.linalg.norm(ee_target - ee_actual) < 0.05:
+                    candidates.append((q_arm, oi, si))
 
-    print("[IK]  WARNING: No collision-free place IK found, using best fallback.")
-    return best_q
+    if not candidates:
+        print("[IK]  WARNING: No collision-free place IK found, using best fallback.")
+        return best_q
+
+    if q_seed is not None:
+        q_seed_arr = np.asarray(q_seed)
+        # Shortest angular distance per joint (wrap to [-pi, pi])
+        def _ang_dist(q):
+            d = (q - q_seed_arr + np.pi) % (2 * np.pi) - np.pi
+            return float(np.linalg.norm(d))
+        candidates.sort(key=lambda c: _ang_dist(c[0]))
+        best = candidates[0]
+        print(f"[IK]  PLACE pose (closest-to-start, orn_idx={best[1]}, "
+              f"seed={best[2]}, Δq={_ang_dist(best[0]):.3f} rad)")
+        return best[0]
+
+    best = candidates[0]
+    print(f"[IK]  PLACE pose (orn_idx={best[1]}, seed={best[2]})")
+    return best[0]
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -347,8 +350,31 @@ def main():
     # Build shelf obstacles (includes table)
     shelf_obstacles = build_shelf_obstacles()
 
-    # ── Start config: goal config from Phase 1 ──
-    q_start = np.array([-2.813, -0.892, 1.726, -3.975, -0.329, 1.570])
+    # ── Start config: recompute Phase 1 goal (side-grasp IK) so it
+    #    stays in sync with run_real_setup_test.py (base rotation etc.)
+    print("[IK] Recomputing Phase 1 goal (side-grasp) for start config ...")
+    _phase1_env = UR10eRobotiqEnv(
+        gui=False,
+        obstacles=shelf_obstacles,
+        base_position=[0.0, 0.0, ROBOT_BASE_Z],
+        base_orientation=p.getQuaternionFromEuler([0, 0, np.pi]),
+    )
+    _p1_cid = _phase1_env.physics_client
+    _upper_floor_z = SHELF_Z + SHELF_H / 2 + SHELF_T / 2
+    _phase1_bottle_pos = [SHELF_X, SHELF_Y, _upper_floor_z + 0.08]
+    _phase1_mustard_urdf = "/home/muhayy/Documents/forsight-tamp/assets/ycb_objects/ycb_assets/006_mustard_bottle.urdf"
+    _phase1_bottle_id = p.loadURDF(
+        _phase1_mustard_urdf,
+        basePosition=_phase1_bottle_pos,
+        baseOrientation=p.getQuaternionFromEuler([0, 0, np.deg2rad(-60)]),
+        useFixedBase=True,
+        globalScaling=0.1,
+        physicsClientId=_p1_cid,
+    )
+    _phase1_env.obstacle_ids.append(_phase1_bottle_id)
+    q_start, _ = _compute_phase1_goal_ik(_phase1_env, _phase1_bottle_pos)
+    _phase1_env.disconnect()
+    print(f"[IK] Phase 1 goal → q_start = [{', '.join(f'{v:.4f}' for v in q_start)}]")
 
     # ── Phase 1: Headless IK computation for place pose ──────────
     print("[IK] Loading PyBullet (headless) for place IK computation ...")
@@ -356,6 +382,7 @@ def main():
         gui=False,
         obstacles=shelf_obstacles,
         base_position=[0.0, 0.0, ROBOT_BASE_Z],
+        base_orientation=p.getQuaternionFromEuler([0, 0, np.pi]),
     )
     ik_cid = ik_env.physics_client
 
@@ -395,7 +422,7 @@ def main():
     assert ik_env.is_collision_free(q_start), "Start config is in collision!"
 
     # Compute place goal
-    q_goal = compute_place_on_shelf_top_ik(ik_env)
+    q_goal = compute_place_on_shelf_top_ik(ik_env, q_seed=q_start)
     assert ik_env.is_collision_free(q_goal), "Goal config is in collision!"
 
     pos_g, orn_g = ik_env.get_ee_pose(q_goal)
@@ -411,6 +438,7 @@ def main():
         gui=True,
         obstacles=shelf_obstacles,
         base_position=[0.0, 0.0, ROBOT_BASE_Z],
+        base_orientation=p.getQuaternionFromEuler([0, 0, np.pi]),
     )
     cid = env.physics_client
 
@@ -605,6 +633,8 @@ def main():
             f.write(f"  Waypoints : {len(path)}\n")
             f.write(f"  Path cost : {cost:.6f}\n")
             f.write(f"  DOF       : 6\n\n")
+            f.write(f"  q_start : [{', '.join(f'{v:+.6f}' for v in q_start)}]\n")
+            f.write(f"  q_goal  : [{', '.join(f'{v:+.6f}' for v in q_goal)}]\n\n")
             f.write("  Each row: joint_1  joint_2  joint_3  joint_4  joint_5  joint_6  (radians)\n")
             f.write("-" * 62 + "\n")
             for i, q in enumerate(path):
@@ -618,6 +648,13 @@ def main():
     # ── Loop path animation until window is closed ────────────
     if path:
         path_fine = interpolate_path(path, max_step=0.02)
+        print("\n[ANIM] Showing path with EE trail ...")
+        env.set_joint_positions(q_start)
+        p.stepSimulation(physicsClientId=cid)
+        time.sleep(0.5)
+        env.visualize_path(path_fine, delay=0.02, trail=True)
+        time.sleep(1.0)
+
         print("\n[LOOP] Replaying path (close PyBullet window to exit) ...")
         try:
             while p.isConnected(physicsClientId=cid):

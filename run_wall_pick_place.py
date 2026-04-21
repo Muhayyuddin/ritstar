@@ -230,6 +230,7 @@ def main():
         gui=True,
         obstacles=wall_obstacles,
         base_position=[0.0, 0.0, ROBOT_BASE_Z],
+        base_orientation=p.getQuaternionFromEuler([0, 0, np.pi]),
     )
     cid = env.physics_client
     add_scenery(cid)
@@ -408,6 +409,8 @@ def main():
             f.write(f"  Waypoints : {len(path)}\n")
             f.write(f"  Path cost : {cost:.6f}\n")
             f.write(f"  DOF       : 6\n\n")
+            f.write(f"  q_start : [{', '.join(f'{v:+.6f}' for v in q_start)}]\n")
+            f.write(f"  q_goal  : [{', '.join(f'{v:+.6f}' for v in q_goal)}]\n\n")
             f.write("  Each row: joint_1  joint_2  joint_3  joint_4  joint_5  joint_6  (radians)\n")
             f.write("-" * 62 + "\n")
             for i, q in enumerate(path):

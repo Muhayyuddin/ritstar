@@ -319,6 +319,7 @@ def main():
         gui=True,
         obstacles=wall_obstacles,
         base_position=[0.0, 0.0, ROBOT_BASE_Z],
+        base_orientation=p.getQuaternionFromEuler([0, 0, np.pi]),
     )
     cid = env.physics_client
     add_scenery(cid)
@@ -371,33 +372,17 @@ def main():
             clr = RQ_BLACK if "finger_tip" in lname else RQ_DARK
             p.changeVisualShape(rid, lidx, rgbaColor=clr, physicsClientId=cid)
 
-    # ── IK for start (−y side, grasp) and goal (+y side, placement) ──
-    # Start = goal of run_wall_env: top-down grasp of the can on the −y side.
-    # Goal  = mirror placement position on the +y side of the wall.
-    side_clearance = WALL_W / 2 + 0.50
-    can_x = WALL_X
-    can_y = WALL_Y - side_clearance
-    can_z = TABLE_SURFACE_Z + 0.055
-    grasp_z = can_z + GRASP_OFFSET_Z + 0.01   # +1 cm lift
+    # ── Hard-coded start / goal (precomputed offline with _find_wall_carry_ik.py) ──
+    # Start target: [-0.600, -0.691, 0.980] (10 cm toward −y table edge, +1 cm lift)
+    # Goal target:  mirror on +y side at same height.
+    # Both collision-free top-down grasps; Δq ≈ 2.26 rad (easy for planner).
+    q_start = np.array([0.664284, -0.985480, 1.677681,
+                        -2.263020, -1.570794, -2.477311])
+    q_goal = np.array([-0.912412, -1.161520, 1.977143,
+                       -2.386444, -1.570793, 2.229174])
 
-    grasp_target = [can_x, can_y, grasp_z]
-    print(f"[IK]  Computing start IK  target={[round(v,3) for v in grasp_target]}")
-    q_start = find_ik(env, grasp_target, side_label="START (−y, grasp)")
-    if q_start is None:
-        print("[FATAL] Could not find collision-free start IK.")
-        env.disconnect()
-        return
-
-    place_target = [can_x + 0.02, WALL_Y + side_clearance - 0.14, grasp_z]
-    print(f"[IK]  Computing goal IK   target={[round(v,3) for v in place_target]}")
-    q_goal = find_ik(env, place_target, side_label="GOAL (+y, place)")
-    if q_goal is None:
-        print("[FATAL] Could not find collision-free goal IK.")
-        env.disconnect()
-        return
-
-    assert env.is_collision_free(q_start), "Start config is in collision!"
-    assert env.is_collision_free(q_goal),  "Goal config is in collision!"
+    assert env.is_collision_free(q_start), "Hard-coded start is in collision!"
+    assert env.is_collision_free(q_goal),  "Hard-coded goal  is in collision!"
 
     # ── Attach can between gripper fingers at start ───────────────
     can_id, _, can_in_ft, can_orn_in_ft = attach_can_to_gripper(env, q_start)

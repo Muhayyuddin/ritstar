@@ -11,7 +11,7 @@
   Dimensions (W x D x H)   : 0.32 x 0.24 x 0.54 m
 
 --- Mustard Bottle (attached to gripper) ---
-  Start position (world) : [-0.67157, -0.66898, 1.12398]
+  Start position (world) : [-0.67140, -0.66904, 1.12404]
   Scale                  : 0.1
   Attached to EE link    : 9
 
@@ -25,18 +25,18 @@
   [6] box  pos=[-0.67138, -0.68403, 1.284]  half_extents=[0.16, 0.12, 0.01]
 
 --- Start Configuration (grasp from Phase 1) ---
-  q_start (rad) : [-2.813000, -0.892000, 1.726000, -3.975000, -0.329000, 1.570000]
-  EE position   : [-0.67151, -0.52948, 1.12401]
+  q_start (rad) : [0.328694, -0.892172, 1.726115, -3.974635, -0.328692, -0.000899]
+  EE position   : [-0.67140, -0.52954, 1.12408]
 
 --- Goal Configuration (place on shelf top) ---
-  q_goal  (rad) : [-2.753077, -1.111674, 1.517416, -3.546718, -0.388514, 1.570186]
-  EE position   : [-0.67139, -0.57954, 1.39408]
-  x_ee (approach) : [0.00000, -1.00000, -0.00023]
-  y_ee (open)     : [1.00000, 0.00000, -0.00004]
+  q_goal  (rad) : [0.388502, -1.111402, 1.517396, -3.548115, -0.388504, 0.000523]
+  EE position   : [-0.67136, -0.57951, 1.39393]
+  x_ee (approach) : [-0.00000, -1.00000, 0.00020]
+  y_ee (open)     : [1.00000, -0.00000, 0.00003]
 
 --- Planner ---
   Algorithm     : RIT*
   Metric        : DiagonalAnisotropicMetric
-  Path cost     : 0.842551
-  Waypoints     : 5
+  Path cost     : 0.689635
+  Waypoints     : 6
   Bottle collision : ENABLED (attached body)

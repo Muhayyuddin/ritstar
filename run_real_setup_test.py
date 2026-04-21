@@ -42,7 +42,7 @@ ROBOT_BASE_Z    = TABLE_SURFACE_Z + SLAB_THICKNESS  # 0.76990 m
 # X-axis flipped: shelf on +x side, robot stays at origin
 SHELF_REL_X =  -0.67138
 SHELF_REL_Y = -0.68403
-SHELF_REL_Z = -0.01590      # slightly below robot base (shelf sits on table)
+SHELF_REL_Z = 0      # slightly below robot base (shelf sits on table)
 
 # Shelf world position — bottom-centre of the shelf
 SHELF_X = SHELF_REL_X
@@ -305,6 +305,7 @@ def main():
         gui=False,
         obstacles=shelf_obstacles,
         base_position=[0.0, 0.0, ROBOT_BASE_Z],
+        base_orientation=p.getQuaternionFromEuler([0, 0, np.pi]),
     )
 
     # Load mustard bottle in headless env (collision enabled with robot)
@@ -321,7 +322,7 @@ def main():
     # Add bottle to obstacle list so is_collision_free checks against it
     ik_env.obstacle_ids.append(ik_bottle_id)
 
-    q_start = np.array([-np.pi / 2, -np.pi / 2, np.pi / 2, -np.pi / 2, -np.pi / 2, 0.0])
+    q_start = np.array([np.pi / 2, -np.pi / 2, np.pi / 2, -np.pi / 2, -np.pi / 2, 0.0])
     q_goal, grasp_pos = compute_side_grasp_ik(ik_env, bottle_pos)
 
     # Verify in headless env
@@ -344,6 +345,7 @@ def main():
         gui=True,
         obstacles=shelf_obstacles,
         base_position=[0.0, 0.0, ROBOT_BASE_Z],
+        base_orientation=p.getQuaternionFromEuler([0, 0, np.pi]),
     )
 
     # Add visual scenery (legs, slab)
@@ -522,6 +524,8 @@ def main():
             f.write(f"  Waypoints : {len(path)}\n")
             f.write(f"  Path cost : {cost:.6f}\n")
             f.write(f"  DOF       : 6\n\n")
+            f.write(f"  q_start : [{', '.join(f'{v:+.6f}' for v in q_start)}]\n")
+            f.write(f"  q_goal  : [{', '.join(f'{v:+.6f}' for v in q_goal)}]\n\n")
             f.write("  Each row: joint_1  joint_2  joint_3  joint_4  joint_5  joint_6  (radians)\n")
             f.write("-" * 62 + "\n")
             for i, q in enumerate(path):

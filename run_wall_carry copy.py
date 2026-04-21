@@ -319,6 +319,7 @@ def main():
         gui=True,
         obstacles=wall_obstacles,
         base_position=[0.0, 0.0, ROBOT_BASE_Z],
+        base_orientation=p.getQuaternionFromEuler([0, 0, np.pi]),
     )
     cid = env.physics_client
     add_scenery(cid)
