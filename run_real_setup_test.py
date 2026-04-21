@@ -463,6 +463,8 @@ def main():
     if path:
         print(f"\n[RESULT] Path found — cost: {cost:.4f}, waypoints: {len(path)}")
 
+        os.makedirs("results", exist_ok=True)
+
         # ── Save world state ──
         upper_floor_z = SHELF_Z + SHELF_H / 2 + SHELF_T / 2
         with open("results/real_setup_world_state.txt", "w") as f:
@@ -540,6 +542,15 @@ def main():
     # Loop animation until Ctrl+C
     if path:
         path_fine = interpolate_path(path, max_step=0.02)
+
+        # One-time animation with red EE trail (matches old animate=True behaviour)
+        print("\n[ANIM] Showing path with EE trail ...")
+        env.set_joint_positions(q_start)
+        p.stepSimulation(physicsClientId=cid)
+        time.sleep(0.5)
+        env.visualize_path(path_fine, delay=0.02, trail=True)
+        time.sleep(1.0)
+
         print("\n  Looping path animation. Press Ctrl+C to exit.")
         try:
             while True:
