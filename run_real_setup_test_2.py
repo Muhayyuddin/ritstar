@@ -466,29 +466,29 @@ def main():
 
     # Configure camera
     p.resetDebugVisualizerCamera(
-        cameraDistance=1.4,
-        cameraYaw=-36.0,
-        cameraPitch=-20.6,
-        cameraTargetPosition=[0.363, -0.358, 1.21],
+        cameraDistance=1.20,
+        cameraYaw=241.60,
+        cameraPitch=-27.40,
+        cameraTargetPosition=[-0.345, -0.355, 0.970],
         physicsClientId=cid,
     )
     p.configureDebugVisualizer(p.COV_ENABLE_SHADOWS, 0, physicsClientId=cid)
 
-    # ── Infinite white tiled floor ─────────────────────────────────
+    # ── Infinite very light grey floor ────────────────────────────
     floor_he = [50.0, 50.0, 0.01]
     floor_vis = p.createVisualShape(p.GEOM_BOX, halfExtents=floor_he,
-                                    rgbaColor=[1.0, 1.0, 1.0, 1.0],
+                                    rgbaColor=[0.78, 0.78, 0.78, 1.0],
                                     physicsClientId=cid)
     p.createMultiBody(baseMass=0, baseCollisionShapeIndex=-1,
                       baseVisualShapeIndex=floor_vis,
                       basePosition=[0.0, 0.0, 0.0],
                       physicsClientId=cid)
     p.changeVisualShape(env.plane_id, -1,
-                        rgbaColor=[1.0, 1.0, 1.0, 1.0],
+                        rgbaColor=[0.78, 0.78, 0.78, 1.0],
                         physicsClientId=cid)
 
     # ── Robot colours ─────────────────────────────────────────────
-    UR_SILVER = [0.75, 0.75, 0.75, 1.0]
+    UR_SILVER = [0.35, 0.35, 0.35, 1.0]
     UR_DARK   = [0.22, 0.22, 0.22, 1.0]
     UR_BLUE   = [0.00, 0.34, 0.68, 1.0]
     RQ_DARK   = [0.15, 0.15, 0.15, 1.0]
@@ -545,12 +545,14 @@ def main():
         batch_size=200,
         max_iterations=300,
         smooth=True,
-        animate=True,
+        animate=False,
         animate_delay=0.02,
     )
 
     if path:
         print(f"\n[RESULT] Path found — cost: {cost:.4f}, waypoints: {len(path)}")
+
+        os.makedirs("results", exist_ok=True)
 
         # Save world state
         with open("results/real_setup_2_world_state.txt", "w") as f:
@@ -620,9 +622,10 @@ def main():
         try:
             while p.isConnected(physicsClientId=cid):
                 env.set_joint_positions(q_start)
-                time.sleep(0.3)
-                env.visualize_path(path_fine, delay=0.02, trail=False)
+                p.stepSimulation(physicsClientId=cid)
                 time.sleep(0.5)
+                env.visualize_path(path_fine, delay=0.02, trail=False)
+                time.sleep(1.0)
         except (KeyboardInterrupt, Exception):
             pass
     else:

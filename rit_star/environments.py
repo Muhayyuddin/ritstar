@@ -994,7 +994,7 @@ except ImportError:
     _HAS_PYBULLET = False
 
 # UR10e approximate link masses (kg) – used as anisotropic weights
-_UR10E_INERTIAS = np.array([7.369, 13.051, 3.989, 2.1, 1.98, 0.615])
+_UR10E_INERTIAS = np.array([7.778, 12.93, 3.87, 1.96, 1.96, 0.202])
 _UR10E_WEIGHTS = (_UR10E_INERTIAS / _UR10E_INERTIAS.max()).tolist()
 
 
@@ -1284,20 +1284,18 @@ def env_2d_dividing_wall() -> EnvTuple:
     -------
     (collision_checker, edge_cost, metric, x_start, x_goal, bounds)
     """
-    x_start = np.array([0.05, 0.5])
-    x_goal  = np.array([0.95, 0.5])
+    x_start = np.array([0.05, 0.05])
+    x_goal  = np.array([0.95, 0.95])
     bounds  = [(0.0, 1.0), (0.0, 1.0)]
 
-    # Vertical wall at x=0.49..0.51 (width 0.02) with three narrow gaps
-    wall_x_lo, wall_x_hi = 0.49, 0.51
-    # Wall segments (solid parts); three narrow gaps between them
+    # Vertical wall at x=0.47..0.53 (width 0.06) with three narrow gaps
+    wall_x_lo, wall_x_hi = 0.47, 0.53
+    # Wall segments (solid parts); two narrow gaps between them
     # gap 1 (bottom): y ∈ [0.10, 0.13]  (width 0.03)
-    # gap 2 (middle): y ∈ [0.48, 0.51]  (width 0.03)
-    # gap 3 (upper):  y ∈ [0.85, 0.88]  (width 0.03)
+    # gap 2 (upper):  y ∈ [0.85, 0.88]  (width 0.03)
     wall_segments = [
         (np.array([wall_x_lo, 0.00]), np.array([wall_x_hi, 0.10])),  # bottom
-        (np.array([wall_x_lo, 0.13]), np.array([wall_x_hi, 0.48])),  # lower-mid
-        (np.array([wall_x_lo, 0.51]), np.array([wall_x_hi, 0.85])),  # upper-mid
+        (np.array([wall_x_lo, 0.13]), np.array([wall_x_hi, 0.85])),  # middle (solid)
         (np.array([wall_x_lo, 0.88]), np.array([wall_x_hi, 1.00])),  # top
     ]
 

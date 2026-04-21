@@ -53,7 +53,8 @@ class UR10eRobotiqEnv:
 
     def __init__(self, gui: bool = True,
                  obstacles: Optional[List[dict]] = None,
-                 base_position: Optional[List[float]] = None):
+                 base_position: Optional[List[float]] = None,
+                 base_orientation: Optional[List[float]] = None):
         mode = p.GUI if gui else p.DIRECT
         self.physics_client = p.connect(mode)
         cid = self.physics_client
@@ -67,10 +68,11 @@ class UR10eRobotiqEnv:
 
         # Load UR10e + Robotiq
         bp = base_position if base_position is not None else [0, 0, 0]
+        bo = base_orientation if base_orientation is not None else p.getQuaternionFromEuler([0, 0, 0])
         self.robot_id = p.loadURDF(
             _URDF,
             basePosition=bp,
-            baseOrientation=p.getQuaternionFromEuler([0, 0, 0]),
+            baseOrientation=bo,
             useFixedBase=True,
             flags=p.URDF_USE_SELF_COLLISION,
             physicsClientId=cid,
@@ -107,6 +109,12 @@ class UR10eRobotiqEnv:
         if obstacles:
             for obs in obstacles:
                 self._add_obstacle(obs)
+
+        # Bodies attached to the robot (e.g. grasped objects) that should
+        # participate in obstacle collision checks during planning.
+        # Each entry: (body_id, parent_link_idx, local_pos, local_orn)
+        self.attached_body_ids: List[int] = []
+        self._attached_info: List[tuple] = []
 
         # Disable collisions between gripper mimic links (they overlap)
         self._disable_gripper_self_collision()
@@ -193,6 +201,38 @@ class UR10eRobotiqEnv:
                 )
 
     # ─── Rendering control ────────────────────────────────────────
+
+    def attach_body(self, body_id: int, parent_link_idx: int,
+                    local_pos: list, local_orn: list):
+        """Register an attached body for collision checking during planning.
+
+        The body will be repositioned to match the parent link's FK
+        before each collision check.
+
+        Parameters
+        ----------
+        body_id : int — PyBullet body ID of the attached object
+        parent_link_idx : int — link index on the robot the object is attached to
+        local_pos : [x, y, z] — position offset in parent link frame
+        local_orn : [x, y, z, w] — orientation offset in parent link frame (quaternion)
+        """
+        self.attached_body_ids.append(body_id)
+        self._attached_info.append((body_id, parent_link_idx,
+                                    list(local_pos), list(local_orn)))
+
+    def _sync_attached_bodies(self):
+        """Reposition all attached bodies to match current robot FK."""
+        cid = self.physics_client
+        for body_id, parent_link, local_pos, local_orn in self._attached_info:
+            link_state = p.getLinkState(self.robot_id, parent_link,
+                                        computeForwardKinematics=True,
+                                        physicsClientId=cid)
+            parent_pos = link_state[4]  # worldLinkFramePosition
+            parent_orn = link_state[5]  # worldLinkFrameOrientation
+            world_pos, world_orn = p.multiplyTransforms(
+                parent_pos, parent_orn, local_pos, local_orn)
+            p.resetBasePositionAndOrientation(
+                body_id, world_pos, world_orn, physicsClientId=cid)
 
     def disable_rendering(self):
         """Disable GUI rendering (useful during planning to avoid visual jitter)."""
@@ -286,6 +326,11 @@ class UR10eRobotiqEnv:
 
         self.set_joint_positions(q)
         cid = self.physics_client
+
+        # Reposition attached bodies (e.g. grasped can) before collision check
+        if self._attached_info:
+            self._sync_attached_bodies()
+
         p.performCollisionDetection(physicsClientId=cid)
 
         # Check collision with each obstacle
@@ -311,6 +356,14 @@ class UR10eRobotiqEnv:
         if contacts:
             return False
 
+        # Check attached bodies (e.g. grasped objects) against obstacles
+        for att_id in self.attached_body_ids:
+            for obs_id in self.obstacle_ids:
+                contacts = p.getContactPoints(bodyA=att_id, bodyB=obs_id,
+                                              physicsClientId=cid)
+                if contacts:
+                    return False
+
         return True
 
     def is_edge_collision_free(self, q1: np.ndarray, q2: np.ndarray,
@@ -334,7 +387,7 @@ class UR10eRobotiqEnv:
         ----------
         path : list of (6,) arrays
         delay : float — seconds between waypoints
-        trail : bool — if True, draw EE trace in green
+        trail : bool — if True, draw EE trace in red
         """
         prev_pos = None
         for q in path:
@@ -345,7 +398,7 @@ class UR10eRobotiqEnv:
                 if prev_pos is not None:
                     p.addUserDebugLine(
                         prev_pos.tolist(), pos.tolist(),
-                        lineColorRGB=[0, 1, 0], lineWidth=3, lifeTime=0,
+                        lineColorRGB=[1, 0, 0], lineWidth=3, lifeTime=0,
                         physicsClientId=self.physics_client,
                     )
                 prev_pos = pos

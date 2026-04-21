@@ -380,13 +380,7 @@ class MetricFieldCache:
         inv_n = 1.0 / n_extra
         for i in range(n_extra + 1):
             t = i * inv_n
-            # Skip if close to an already-checked GL point
-            skip = False
-            for t_gl in checked_ts:
-                if abs(t - t_gl) < 0.02:
-                    skip = True
-                    break
-            if skip:
+            if any(abs(t - tc) < 0.02 for tc in checked_ts):
                 continue
             if not collision_free(x + t * diff):
                 return np.inf, False
@@ -448,12 +442,7 @@ class MetricFieldCache:
         inv_n = 1.0 / n_extra
         for i in range(n_extra + 1):
             t = i * inv_n
-            skip = False
-            for t_gl in checked_ts:
-                if abs(t - t_gl) < 0.02:
-                    skip = True
-                    break
-            if skip:
+            if any(abs(t - tc) < 0.02 for tc in checked_ts):
                 continue
             pt = x + t * diff
             if not collision_free(pt):

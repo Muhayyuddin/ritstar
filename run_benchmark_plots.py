@@ -626,6 +626,99 @@ def _generate_latex_table_ii(rows, all_results, planners, out_dir):
     print(f'  -> Table II LaTeX saved to {tex_path}')
 
 
+# ── Aggregated-across-envs benchmark table ───────────────────────────
+
+def generate_table_aggregated(all_results, planners, out_dir):
+    """Aggregate Table-II style metrics across environments.
+
+    For each planner, average the per-env medians (t_init_med, c_init_med,
+    c_final_med) and success rate over all environments. Produces a single
+    CSV row per planner (no env dimension) and prints a summary table.
+    """
+    import csv
+
+    env_names = list(all_results.keys())
+    if not env_names:
+        print('  No data for aggregated benchmark table.')
+        return
+
+    rows = []
+    for pname in planners:
+        env_t_init = []
+        env_c_init = []
+        env_c_final = []
+        env_success = []
+        for env_name in env_names:
+            trial_stats_list = all_results[env_name].get(pname)
+            if not trial_stats_list:
+                continue
+            init_times, init_costs, final_costs = [], [], []
+            for stats in trial_stats_list:
+                if not stats:
+                    init_times.append(np.inf)
+                    init_costs.append(np.inf)
+                    final_costs.append(np.inf)
+                    continue
+                first_t, first_c = np.inf, np.inf
+                for s in stats:
+                    if np.isfinite(s['c_best']):
+                        first_t = s['time_elapsed']
+                        first_c = s['c_best']
+                        break
+                init_times.append(first_t)
+                init_costs.append(first_c)
+                final_costs.append(stats[-1]['c_best'])
+            init_times = np.asarray(init_times)
+            init_costs = np.asarray(init_costs)
+            final_costs = np.asarray(final_costs)
+
+            env_success.append(
+                float(np.sum(np.isfinite(init_costs))) / len(init_costs))
+            fi_t = init_times[np.isfinite(init_times)]
+            fi_c = init_costs[np.isfinite(init_costs)]
+            fi_f = final_costs[np.isfinite(final_costs)]
+            if fi_t.size:
+                env_t_init.append(float(np.median(fi_t)))
+            if fi_c.size:
+                env_c_init.append(float(np.median(fi_c)))
+            if fi_f.size:
+                env_c_final.append(float(np.median(fi_f)))
+
+        rows.append({
+            'planner': pname,
+            'n_envs': len(env_names),
+            't_init_med_avg': float(np.mean(env_t_init)) if env_t_init else np.inf,
+            'c_init_med_avg': float(np.mean(env_c_init)) if env_c_init else np.inf,
+            'c_final_med_avg': float(np.mean(env_c_final)) if env_c_final else np.inf,
+            'success_avg': float(np.mean(env_success)) if env_success else 0.0,
+        })
+
+    # ── Console output ────────────────────────────────────────────────
+    print('\n' + '=' * 90)
+    print(f'  AGGREGATED BENCHMARK TABLE (averaged over {len(env_names)} env(s))')
+    print('=' * 90)
+    print(f'  {"Planner":<16}{"t_init_med":>14}{"c_init_med":>14}'
+          f'{"c_final_med":>14}{"Success":>12}')
+    print('  ' + '-' * 80)
+    for r in rows:
+        print(f'  {r["planner"]:<16}'
+              f'{r["t_init_med_avg"]:14.4f}'
+              f'{r["c_init_med_avg"]:14.4f}'
+              f'{r["c_final_med_avg"]:14.4f}'
+              f'{r["success_avg"] * 100:11.0f}%')
+    print('  ' + '-' * 80)
+
+    csv_path = os.path.join(out_dir, 'benchmark_aggregated.csv')
+    fieldnames = ['planner', 'n_envs', 't_init_med_avg', 'c_init_med_avg',
+                  'c_final_med_avg', 'success_avg']
+    with open(csv_path, 'w', newline='') as f:
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        writer.writeheader()
+        for r in rows:
+            writer.writerow(r)
+    print(f'\n  -> Aggregated CSV saved to {csv_path}')
+
+
 # ── Table III-style benchmark table (APT* paper format) ──────────────
 
 def generate_table_iii(all_results, planners, out_dir, n_trials=10):

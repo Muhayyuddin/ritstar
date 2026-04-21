@@ -23,7 +23,7 @@ import pybullet as p
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from manipulator_env.pybullet_env import UR10eRobotiqEnv
-from manipulator_env.planner_interface import plan_and_execute
+from manipulator_env.planner_interface import plan_and_execute, interpolate_path
 from rit_star.metric import DiagonalAnisotropicMetric
 
 # Fast inertia-based diagonal metric (no PyBullet calls per evaluation)
@@ -369,29 +369,38 @@ def main():
 
     # Configure camera
     p.resetDebugVisualizerCamera(
-        cameraDistance=2.2,
-        cameraYaw=150,
-        cameraPitch=-25,
-        cameraTargetPosition=[SHELF_X / 2, SHELF_Y / 2, 0.95],
+        cameraDistance=1.20,
+        cameraYaw=241.60,
+        cameraPitch=-27.40,
+        cameraTargetPosition=[-0.345, -0.355, 0.970],
         physicsClientId=cid,
     )
     p.configureDebugVisualizer(p.COV_ENABLE_SHADOWS, 0, physicsClientId=cid)
 
-    # ── Infinite white tiled floor ─────────────────────────────────
+    def print_camera_view(tag=""):
+        info = p.getDebugVisualizerCamera(physicsClientId=cid)
+        yaw, pitch, dist, target = info[8], info[9], info[10], info[11]
+        print(f"[CAM]{tag} yaw={yaw:+.2f}  pitch={pitch:+.2f}  "
+              f"dist={dist:.3f}  target=[{target[0]:+.3f}, "
+              f"{target[1]:+.3f}, {target[2]:+.3f}]")
+
+    print_camera_view(" init")
+
+    # ── Infinite very light grey floor ────────────────────────────
     floor_he = [50.0, 50.0, 0.01]
     floor_vis = p.createVisualShape(p.GEOM_BOX, halfExtents=floor_he,
-                                    rgbaColor=[1.0, 1.0, 1.0, 1.0],
+                                    rgbaColor=[0.78, 0.78, 0.78, 1.0],
                                     physicsClientId=cid)
     p.createMultiBody(baseMass=0, baseCollisionShapeIndex=-1,
                       baseVisualShapeIndex=floor_vis,
                       basePosition=[0.0, 0.0, 0.0],
                       physicsClientId=cid)
     p.changeVisualShape(env.plane_id, -1,
-                        rgbaColor=[1.0, 1.0, 1.0, 1.0],
+                        rgbaColor=[0.78, 0.78, 0.78, 1.0],
                         physicsClientId=cid)
 
     # ── Robot colours ─────────────────────────────────────────────
-    UR_SILVER = [0.75, 0.75, 0.75, 1.0]
+    UR_SILVER = [0.35, 0.35, 0.35, 1.0]
     UR_DARK   = [0.22, 0.22, 0.22, 1.0]
     UR_BLUE   = [0.00, 0.34, 0.68, 1.0]
     RQ_DARK   = [0.15, 0.15, 0.15, 1.0]
@@ -526,21 +535,19 @@ def main():
 
     # Loop animation until Ctrl+C
     if path:
+        path_fine = interpolate_path(path, max_step=0.02)
         print("\n  Looping path animation. Press Ctrl+C to exit.")
         try:
             while True:
-                # Forward
-                for q in path:
+                print_camera_view()
+                env.set_joint_positions(q_start)
+                p.stepSimulation(physicsClientId=cid)
+                time.sleep(0.5)
+                for q in path_fine:
                     env.set_joint_positions(q)
                     p.stepSimulation(physicsClientId=cid)
                     time.sleep(0.02)
-                time.sleep(0.5)
-                # Reverse
-                for q in reversed(path):
-                    env.set_joint_positions(q)
-                    p.stepSimulation(physicsClientId=cid)
-                    time.sleep(0.02)
-                time.sleep(0.5)
+                time.sleep(1.0)
         except KeyboardInterrupt:
             print("\nShutting down ...")
         finally:

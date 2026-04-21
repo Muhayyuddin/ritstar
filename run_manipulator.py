@@ -18,12 +18,14 @@ import sys
 import os
 import numpy as np
 import time
+import pybullet as p
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from manipulator_env.pybullet_env import UR10eRobotiqEnv
 from manipulator_env.planner_interface import (
     plan_and_execute,
+    interpolate_path,
     ManipulatorInertiaMetric,
 )
 
@@ -171,6 +173,56 @@ def main():
     print("\n[ENV] Loading PyBullet environment ...")
     env = UR10eRobotiqEnv(gui=not args.headless, obstacles=obstacles)
 
+    cid = env.physics_client
+
+    # ── Infinite very light grey floor ────────────────────────────
+    if not args.headless:
+        floor_he = [50.0, 50.0, 0.01]
+        floor_vis = p.createVisualShape(p.GEOM_BOX, halfExtents=floor_he,
+                                        rgbaColor=[0.78, 0.78, 0.78, 1.0],
+                                        physicsClientId=cid)
+        p.createMultiBody(baseMass=0, baseCollisionShapeIndex=-1,
+                          baseVisualShapeIndex=floor_vis,
+                          basePosition=[0.0, 0.0, 0.0],
+                          physicsClientId=cid)
+        p.changeVisualShape(env.plane_id, -1,
+                            rgbaColor=[0.78, 0.78, 0.78, 1.0],
+                            physicsClientId=cid)
+
+    # ── Robot colours ─────────────────────────────────────────────
+    if not args.headless:
+        UR_SILVER = [0.35, 0.35, 0.35, 1.0]
+        UR_DARK   = [0.22, 0.22, 0.22, 1.0]
+        UR_BLUE   = [0.00, 0.34, 0.68, 1.0]
+        RQ_DARK   = [0.15, 0.15, 0.15, 1.0]
+        RQ_BLACK  = [0.08, 0.08, 0.08, 1.0]
+        rid = env.robot_id
+        n = p.getNumJoints(rid, physicsClientId=cid)
+        link_name_to_idx = {}
+        for i in range(n):
+            info = p.getJointInfo(rid, i, physicsClientId=cid)
+            link_name_to_idx[info[12].decode("utf-8")] = i
+        p.changeVisualShape(rid, -1, rgbaColor=UR_DARK, physicsClientId=cid)
+        ur_colour_map = {
+            "base_link_inertia": UR_DARK,
+            "shoulder_link":     UR_BLUE,
+            "upper_arm_link":    UR_SILVER,
+            "forearm_link":      UR_SILVER,
+            "wrist_1_link":      UR_DARK,
+            "wrist_2_link":      UR_SILVER,
+            "wrist_3_link":      UR_DARK,
+            "flange":            UR_DARK,
+            "tool0":             UR_DARK,
+        }
+        for lname, colour in ur_colour_map.items():
+            if lname in link_name_to_idx:
+                p.changeVisualShape(rid, link_name_to_idx[lname],
+                                    rgbaColor=colour, physicsClientId=cid)
+        for lname, lidx in link_name_to_idx.items():
+            if "robotiq" in lname:
+                clr = RQ_BLACK if "finger_tip" in lname else RQ_DARK
+                p.changeVisualShape(rid, lidx, rgbaColor=clr, physicsClientId=cid)
+
     # Verify start and goal are collision-free
     env.set_joint_positions(q_start)
     if not env.is_collision_free(q_start):
@@ -216,6 +268,27 @@ def main():
     else:
         print("\n[RESULT] No path found. Try increasing --max-iter or --batch-size.")
 
+    # ── Loop path animation until window is closed ────────────
+    if path and not args.headless:
+        path_fine = interpolate_path(path, max_step=0.02)
+        print("\n[LOOP] Replaying path (close PyBullet window to exit) ...")
+        try:
+            while p.isConnected(physicsClientId=cid):
+                env.set_joint_positions(q_start)
+                time.sleep(0.3)
+                env.visualize_path(path_fine, delay=0.02, trail=False)
+                time.sleep(0.5)
+        except (KeyboardInterrupt, Exception):
+            pass
+    elif not args.headless:
+        print("\n  Press Ctrl+C to exit.")
+        try:
+            while p.isConnected(physicsClientId=cid):
+                p.stepSimulation(physicsClientId=cid)
+                time.sleep(1 / 240)
+        except (KeyboardInterrupt, Exception):
+            pass
+    print("Shutting down ...")
     env.disconnect()
 
 

@@ -5,7 +5,7 @@ run_wall_env.py — Wall environment: UR10e must plan around a tall wall.
 Setup:
   - UR10e mounted on table (same physical setup as other demos)
   - A tall wall placed in front of the robot, extending along the world y-axis
-  - Start: arm reaching to +y side of the wall
+  - Start: arm at home configuration
   - Goal:  arm reaching to −y side of the wall
   - The wall separates the two sides, forcing the planner to swing around/over
 
@@ -22,12 +22,17 @@ import pybullet as p
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from manipulator_env.pybullet_env import UR10eRobotiqEnv
-from manipulator_env.planner_interface import plan_and_execute
+from manipulator_env.planner_interface import plan_and_execute, interpolate_path
 from rit_star.metric import DiagonalAnisotropicMetric
 
 # Fast inertia-based diagonal metric
 _UR10E_INERTIAS = np.array([7.369, 13.051, 3.989, 2.1, 1.98, 0.615])
 _UR10E_WEIGHTS = (_UR10E_INERTIAS / _UR10E_INERTIAS.max()).tolist()
+REAL_SETUP_Q_START = np.array([-np.pi / 2, -np.pi / 2, np.pi / 2,
+                               -np.pi / 2, -np.pi / 2, 0.0])
+TOP_DOWN_ORN = list(p.getQuaternionFromEuler([0, np.pi / 2, 0]))
+GRIPPER_DEPTH = 0.105
+GRASP_OFFSET_Z = GRIPPER_DEPTH + 0.06
 
 # ═══════════════════════════════════════════════════════════════════════
 # Physical constants (metres)
@@ -37,21 +42,18 @@ TABLE_SURFACE_Z = 0.75
 SLAB_THICKNESS  = 0.01990
 ROBOT_BASE_Z    = TABLE_SURFACE_Z + SLAB_THICKNESS  # 0.76990
 
-TABLE_LEN = 1.50
-TABLE_WID = 1.40
+TABLE_LEN = 1.00
+TABLE_WID = 1.50
 TABLE_THK = 0.05
-TABLE_CX  = 0.35
-TABLE_CY  = 0.0
+TABLE_CX  = -0.29
+TABLE_CY  = -0.07
 
 # Wall: vertical barrier in front of robot, long axis along world x
-# Starts just in front of robot base (x≈0.15) to far end of table (x=1.10)
-_WALL_X_START = 0.15                            # just in front of robot
-_WALL_X_END   = TABLE_CX + TABLE_LEN / 2        # far edge of table (1.10)
-WALL_L     = _WALL_X_END - _WALL_X_START         # length along x-axis
-WALL_X     = (_WALL_X_START + _WALL_X_END) / 2   # x-centre
-WALL_Y     = 0.0     # y-centre: directly in front of robot
-WALL_W     = 0.03    # thickness (y-extent)
-WALL_H     = 0.55    # height above table surface
+WALL_L     = 0.54    # length along x-axis (54 cm)
+WALL_X     = -0.60              # absolute wall centre x
+WALL_Y     = 0.00               # absolute wall centre y
+WALL_W     = 0.182   # thickness / depth (y-extent, 18.2 cm)
+WALL_H     = 0.50    # height above table surface (50 cm)
 WALL_Z_BOT = ROBOT_BASE_Z          # base of wall = table surface
 WALL_Z_MID = WALL_Z_BOT + WALL_H / 2
 
@@ -114,10 +116,11 @@ def add_scenery(cid):
 # IK solver with side-biased seeds + random fallback
 # ═══════════════════════════════════════════════════════════════════════
 
-def find_ik(env, target_pos, side_label="", n_random=200):
-    """Position-only IK with deterministic seeds + random sampling.
+def find_ik(env, target_pos, side_label="", n_random=200,
+            desired_orn=None, pos_tol=0.05):
+    """IK with deterministic seeds + random sampling.
 
-    Returns the first collision-free solution with EE error < 5 cm.
+    If desired_orn is provided, prefer solutions matching that orientation.
     """
     cid = env.physics_client
     n_movable = len(env._all_joint_indices)
@@ -141,12 +144,14 @@ def find_ik(env, target_pos, side_label="", n_random=200):
 
     best_q = None
     best_err = float('inf')
+    candidates = []
 
+    use_orientation = desired_orn is not None
     for si, seed in enumerate(seeds):
         env.set_joint_positions(np.array(seed[:6]))
 
         rest = list(seed[:6]) + [0.0] * (n_movable - 6)
-        q_ik = p.calculateInverseKinematics(
+        ik_kwargs = dict(
             bodyUniqueId=env.robot_id,
             endEffectorLinkIndex=env.ee_link_idx,
             targetPosition=ee_target.tolist(),
@@ -158,20 +163,37 @@ def find_ik(env, target_pos, side_label="", n_random=200):
             residualThreshold=1e-4,
             physicsClientId=cid,
         )
+        if use_orientation:
+            ik_kwargs["targetOrientation"] = list(desired_orn)
+
+        q_ik = p.calculateInverseKinematics(**ik_kwargs)
         q_arm = np.array(q_ik[:6])
 
-        ee_actual, _ = env.get_ee_pose(q_arm)
+        ee_actual, ee_orn = env.get_ee_pose(q_arm)
         err = np.linalg.norm(ee_target - ee_actual)
 
-        if env.is_collision_free(q_arm) and err < 0.05:
-            print(f"[IK]  Collision-free {side_label} found  (seed {si}, err={err:.4f})")
-            print(f"      q   = [{', '.join(f'{v:.4f}' for v in q_arm)}]")
-            print(f"      EE  = [{ee_actual[0]:.3f}, {ee_actual[1]:.3f}, {ee_actual[2]:.3f}]")
-            return q_arm
+        if env.is_collision_free(q_arm) and err < pos_tol:
+            if use_orientation:
+                orn_dot = abs(np.dot(np.array(desired_orn), np.array(ee_orn)))
+                candidates.append((q_arm, err, orn_dot, si, ee_actual))
+            else:
+                print(f"[IK]  Collision-free {side_label} found  (seed {si}, err={err:.4f})")
+                print(f"      q   = [{', '.join(f'{v:.4f}' for v in q_arm)}]")
+                print(f"      EE  = [{ee_actual[0]:.3f}, {ee_actual[1]:.3f}, {ee_actual[2]:.3f}]")
+                return q_arm
 
         if env.is_collision_free(q_arm) and err < best_err:
             best_err = err
             best_q = q_arm
+
+    if use_orientation and candidates:
+        candidates.sort(key=lambda c: (-c[2], c[1]))
+        best_q, best_err, best_orn_dot, best_si, best_ee = candidates[0]
+        print(f"[IK]  Collision-free {side_label} found  "
+              f"(seed {best_si}, err={best_err:.4f}, orn_dot={best_orn_dot:.4f})")
+        print(f"      q   = [{', '.join(f'{v:.4f}' for v in best_q)}]")
+        print(f"      EE  = [{best_ee[0]:.3f}, {best_ee[1]:.3f}, {best_ee[2]:.3f}]")
+        return best_q
 
     if best_q is not None:
         print(f"[IK]  WARNING: best collision-free {side_label} has err={best_err:.4f}")
@@ -197,27 +219,23 @@ def main():
     cid = env.physics_client
     add_scenery(cid)
 
-    # ── Realistic lab floor ────────────────────────────────────────
-    # Create a large flat box as the lab floor with a light grey colour
-    floor_he = [3.0, 3.0, 0.01]
-    floor_col = p.createCollisionShape(p.GEOM_BOX, halfExtents=floor_he,
-                                       physicsClientId=cid)
+    # ── Infinite dark grey floor ───────────────────────────────────
+    floor_he = [50.0, 50.0, 0.01]
     floor_vis = p.createVisualShape(p.GEOM_BOX, halfExtents=floor_he,
-                                    rgbaColor=[0.85, 0.85, 0.82, 1.0],
+                                    rgbaColor=[0.78, 0.78, 0.78, 1.0],
                                     physicsClientId=cid)
     p.createMultiBody(baseMass=0, baseCollisionShapeIndex=-1,
                       baseVisualShapeIndex=floor_vis,
-                      basePosition=[0.0, 0.0, -0.01],
+                      basePosition=[0.0, 0.0, 0.0],
                       physicsClientId=cid)
-    # Change the default checkerboard plane to a neutral colour
     p.changeVisualShape(env.plane_id, -1,
-                        rgbaColor=[0.75, 0.75, 0.72, 1.0],
+                        rgbaColor=[0.78, 0.78, 0.78, 1.0],
                         physicsClientId=cid)
 
     # ── Realistic UR10e + Robotiq colours ─────────────────────────
     # UR10e: light silver body links, dark charcoal joint housings
     # Robotiq 85: dark grey body, black fingers
-    UR_SILVER  = [0.75, 0.75, 0.75, 1.0]   # silver aluminium body
+    UR_SILVER  = [0.35, 0.35, 0.35, 1.0]   # dark grey aluminium body
     UR_DARK    = [0.22, 0.22, 0.22, 1.0]    # dark joint housings
     UR_BLUE    = [0.00, 0.34, 0.68, 1.0]    # UR blue accent (caps)
     RQ_DARK    = [0.15, 0.15, 0.15, 1.0]    # Robotiq dark grey
@@ -268,26 +286,33 @@ def main():
     # start_target = [WALL_X - x_offset, target_y, target_z]   # left (−x) side
     # goal_target  = [WALL_X + x_offset, target_y, target_z]   # right (+x) side
 
-    # [NEW] Front/back of wall (along y-axis):
-    # Wall spans full table length in x, offset in y from robot.
-    # Targets on opposite y-sides of the wall.
-    target_x = 0.50                   # in front of robot, within wall x-span
-    target_z = ROBOT_BASE_Z + 0.35   # comfortable height above table
-    y_near = WALL_Y - 0.25            # −y side (robot side)
-    y_far  = WALL_Y + 0.25            # +y side (far side)
+    # Place can and grasp target on the -y side of the wall in this frame.
+    side_clearance = WALL_W / 2 + 0.50
+    can_x = WALL_X
+    can_y = WALL_Y - side_clearance
+    can_z = TABLE_SURFACE_Z + 0.055   # half can height
+    can_pos = [can_x, can_y, can_z]
 
-    start_target = [target_x, y_far,  target_z]   # +y side (far from robot)
-    goal_target  = [target_x, y_near, target_z]   # −y side (robot side)
+    # Goal is a top grasp of the can with fingers pointing straight downward.
+    goal_target = [can_x, can_y, can_z + GRASP_OFFSET_Z]
+    print(f"[IK]  Computing goal IK   target={[round(v,3) for v in goal_target]}")
+    q_goal = find_ik(env, goal_target, side_label="GOAL (-y)",
+                     desired_orn=TOP_DOWN_ORN, pos_tol=0.02)
 
-    print(f"[IK]  Computing start IK  target={[round(v,3) for v in start_target]}")
-    q_start = find_ik(env, start_target, side_label="START (+y)")
-    print(f"[IK]  Computing goal  IK  target={[round(v,3) for v in goal_target]}")
-    q_goal  = find_ik(env, goal_target,  side_label="GOAL  (−y)")
-
-    if q_start is None or q_goal is None:
-        print("[FATAL] Could not find collision-free IK for both sides.")
+    if q_goal is None:
+        print("[FATAL] Could not find collision-free goal IK.")
         env.disconnect()
         return
+
+    # Start is on the opposite (+y) side of the wall from the goal.
+    start_target = [can_x, WALL_Y + side_clearance - 0.15, ROBOT_BASE_Z + 0.33]
+    print(f"[IK]  Computing start IK  target={[round(v,3) for v in start_target]}")
+    q_start = find_ik(env, start_target, side_label="START (+y)")
+    if q_start is None:
+        print("[FATAL] Could not find collision-free start IK.")
+        env.disconnect()
+        return
+    print(f"[START] Using start configuration: [{', '.join(f'{v:.4f}' for v in q_start)}]")
 
     assert env.is_collision_free(q_start), "Start config is in collision!"
     assert env.is_collision_free(q_goal),  "Goal config is in collision!"
@@ -295,17 +320,38 @@ def main():
     pos_s, _ = env.get_ee_pose(q_start)
     pos_g, _ = env.get_ee_pose(q_goal)
 
+    # ── Place YCB tomato soup can on the table ────────────────────
+    CAN_URDF = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                            "ycb_objects", "ycb_assets",
+                            "005_tomato_soup_can.urdf")
+    can_id = p.loadURDF(
+        CAN_URDF, basePosition=can_pos, baseOrientation=[0, 0, 0, 1],
+        globalScaling=0.1, useFixedBase=True, physicsClientId=cid,
+    )
+    n_joints_r = p.getNumJoints(env.robot_id, physicsClientId=cid)
+    for link_idx in range(-1, n_joints_r):
+        p.setCollisionFilterPair(env.robot_id, can_id, link_idx, -1, 0,
+                                 physicsClientId=cid)
+    print(f"[OBJ] Placed tomato soup can at "
+          f"[{can_x:.3f}, {can_y:.3f}, {can_z:.3f}]")
+
+    # Fully open gripper
+    if "finger_joint" in env._joint_name_to_idx:
+        fj = env._joint_name_to_idx["finger_joint"]
+        p.resetJointState(env.robot_id, fj, 0.0, physicsClientId=cid)
+
     # ── Camera & markers ──────────────────────────────────────────
     p.resetDebugVisualizerCamera(
-        cameraDistance=2.2,
-        cameraYaw=45,
-        cameraPitch=-25,
-        cameraTargetPosition=[WALL_X, 0.0, 1.0],
+        cameraDistance=1.60,
+        cameraYaw=-114.60,
+        cameraPitch=-40.20,
+        cameraTargetPosition=[-0.449, -0.041, 0.892],
         physicsClientId=cid,
     )
     p.configureDebugVisualizer(p.COV_ENABLE_SHADOWS, 0, physicsClientId=cid)
 
-    for tgt, clr in [(start_target, [0, 0, 1, 1]), (goal_target, [1, 0, 0, 1])]:
+    # Blue start marker, red goal marker
+    for tgt, clr in [(pos_s.tolist(), [0, 0, 1, 1]), (pos_g.tolist(), [1, 0, 0, 1])]:
         vis = p.createVisualShape(p.GEOM_SPHERE, radius=0.03,
                                   rgbaColor=clr, physicsClientId=cid)
         p.createMultiBody(baseMass=0, baseVisualShapeIndex=vis,
@@ -316,8 +362,9 @@ def main():
     print("=" * 62)
     print(f"  Wall centre : [{WALL_X:.3f}, {WALL_Y:.3f}, {WALL_Z_MID:.3f}]")
     print(f"  Wall size   : {WALL_L:.2f}(long-x) x {WALL_W:.2f}(thick-y) x {WALL_H:.2f}(tall)")
+    print(f"  Can pos     : [{can_x:.3f}, {can_y:.3f}, {can_z:.3f}]  (−y side)")
     print(f"  Start EE    : [{pos_s[0]:.3f}, {pos_s[1]:.3f}, {pos_s[2]:.3f}]  (+y side)")
-    print(f"  Goal  EE    : [{pos_g[0]:.3f}, {pos_g[1]:.3f}, {pos_g[2]:.3f}]  (−y side)")
+    print(f"  Goal  EE    : [{pos_g[0]:.3f}, {pos_g[1]:.3f}, {pos_g[2]:.3f}]  (−y side, grasp)")
     print(f"  Start cfg   : [{', '.join(f'{v:.3f}' for v in q_start)}]")
     print(f"  Goal  cfg   : [{', '.join(f'{v:.3f}' for v in q_goal)}]")
     print("=" * 62)
@@ -333,7 +380,7 @@ def main():
         batch_size=200,
         max_iterations=300,
         smooth=True,
-        animate=True,
+        animate=False,
         animate_delay=0.02,
     )
 
@@ -361,25 +408,43 @@ def main():
             for i, obs in enumerate(wall_obstacles):
                 f.write(f"  [{i}] {obs['type']}  pos={[round(v,5) for v in obs['pos']]}  "
                         f"he={[round(v,5) for v in obs['half_extents']]}\n")
-            f.write(f"\n--- Start (+y side) ---\n")
-            f.write(f"  q  : [{', '.join(f'{v:.6f}' for v in q_start)}]\n")
-            f.write(f"  EE : [{pos_s[0]:.5f}, {pos_s[1]:.5f}, {pos_s[2]:.5f}]\n\n")
-            f.write(f"--- Goal (−y side) ---\n")
-            f.write(f"  q  : [{', '.join(f'{v:.6f}' for v in q_goal)}]\n")
-            f.write(f"  EE : [{pos_g[0]:.5f}, {pos_g[1]:.5f}, {pos_g[2]:.5f}]\n\n")
-            f.write(f"--- Path ---\n")
-            f.write(f"  Cost      : {cost:.6f}\n")
-            f.write(f"  Waypoints : {len(path)}\n")
+            f.write(f"\n--- Start Configuration (+y side) ---\n")
+            f.write(f"  q_start (rad) : [{', '.join(f'{v:.6f}' for v in q_start)}]\n")
+            f.write(f"  EE position   : [{pos_s[0]:.5f}, {pos_s[1]:.5f}, {pos_s[2]:.5f}]\n\n")
+            f.write(f"--- Goal Configuration (−y side) ---\n")
+            f.write(f"  q_goal  (rad) : [{', '.join(f'{v:.6f}' for v in q_goal)}]\n")
+            f.write(f"  EE position   : [{pos_g[0]:.5f}, {pos_g[1]:.5f}, {pos_g[2]:.5f}]\n\n")
+            f.write("--- Planner ---\n")
+            f.write(f"  Algorithm     : RIT*\n")
+            f.write(f"  Metric        : DiagonalAnisotropicMetric\n")
+            f.write(f"  Weights       : {[round(w,5) for w in _UR10E_WEIGHTS]}\n")
+            f.write(f"  Batch size    : 200\n")
+            f.write(f"  Max iters     : 300\n")
+            f.write(f"  Path cost     : {cost:.6f}\n")
+            f.write(f"  Waypoints     : {len(path)}\n")
         print("[FILE] Saved results/wall_env_world_state.txt")
 
         with open("results/wall_env_path.txt", "w") as f:
             f.write("=" * 62 + "\n")
-            f.write("  Wall Environment — Path\n")
+            f.write("  Wall Environment — Complete Path (Joint Configurations)\n")
             f.write("=" * 62 + "\n")
-            f.write(f"  Waypoints : {len(path)}   Cost : {cost:.6f}\n\n")
+            f.write(f"  Waypoints : {len(path)}\n")
+            f.write(f"  Path cost : {cost:.6f}\n")
+            f.write(f"  DOF       : 6\n\n")
+            f.write("  Each row: joint_1  joint_2  joint_3  joint_4  joint_5  joint_6  (radians)\n")
+            f.write("-" * 62 + "\n")
             for i, q in enumerate(path):
                 f.write(f"  {i:4d}  " + "  ".join(f"{v:+10.6f}" for v in q) + "\n")
+            f.write("-" * 62 + "\n")
         print("[FILE] Saved results/wall_env_path.txt")
+
+        # Animate path in GUI after saving so that an interrupted animation
+        # does not prevent the world-state / path files from being written.
+        path_fine = interpolate_path(path, max_step=0.02)
+        env.set_joint_positions(q_start)
+        time.sleep(0.5)
+        print("[ANIM] Animating path ...")
+        env.visualize_path(path_fine, delay=0.02, trail=True)
     else:
         print("\n[RESULT] No path found.")
 

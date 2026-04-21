@@ -135,11 +135,10 @@ def _draw_obstacles_2d(ax, env_name: str):
             ax.add_patch(Rectangle(lo, w, h, fc='#404040', ec='#303030', alpha=0.85))
 
     elif env_name == '2d_dividing_wall':
-        wall_x_lo, wall_x_hi = 0.49, 0.51
+        wall_x_lo, wall_x_hi = 0.47, 0.53
         wall_segments = [
             (np.array([wall_x_lo, 0.00]), np.array([wall_x_hi, 0.10])),
-            (np.array([wall_x_lo, 0.13]), np.array([wall_x_hi, 0.48])),
-            (np.array([wall_x_lo, 0.51]), np.array([wall_x_hi, 0.85])),
+            (np.array([wall_x_lo, 0.13]), np.array([wall_x_hi, 0.85])),
             (np.array([wall_x_lo, 0.88]), np.array([wall_x_hi, 1.00])),
         ]
         flanking = [
@@ -308,7 +307,16 @@ def animate_planning_2d(vertices_per_iter: List[list],
     -----
     Saves as GIF using ``matplotlib.animation.PillowWriter``.
     """
-    fig, ax = plt.subplots(figsize=(7, 6))
+    x_range = bounds[0][1] - bounds[0][0]
+    y_range = bounds[1][1] - bounds[1][0]
+    base_size = 7
+    if x_range >= y_range:
+        fig_w = base_size
+        fig_h = base_size * (y_range / x_range)
+    else:
+        fig_h = base_size
+        fig_w = base_size * (x_range / y_range)
+    fig, ax = plt.subplots(figsize=(fig_w, fig_h))
 
     def _frame(i):
         ax.cla()

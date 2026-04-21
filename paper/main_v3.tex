@@ -986,8 +986,8 @@ replacing the Euclidean measure.
 \subsection{Setup}\label{sec:setup}
 
 \textbf{Environments.}
-We evaluate on eight environments spanning three dimensionalities:
-3$\times$2-D (Maze, Narrow Passage, Bug Trap),
+We evaluate on nine environments spanning three dimensionalities:
+4$\times$2-D (Random World, Maze, Narrow Passage, Bug Trap),
 2$\times$3-D (Sphere Field, Dense Lab), and
 3$\times$6-D (Tabletop, Shelf, Cluttered).
 The 6-D environments use a UR10e manipulator with Robotiq~85 gripper
@@ -1035,6 +1035,13 @@ environments.
   & \textbf{EIT*}
   & \textbf{APT*} \\
 \midrule
+2-D Random World
+  & $\mathbf{1.900 \pm 0.005}^{**}$
+  & $1.909 \pm 0.017$
+  & $1.903 \pm 0.009$
+  & $1.989 \pm 0.072$
+  & $1.950 \pm 0.016$
+  & $1.973 \pm 0.031$ \\
 2-D Maze
   & $4.648 \pm 0.028$
   & $4.692 \pm 0.049$
@@ -1114,6 +1121,13 @@ environments.
   & \textbf{EIT*}
   & \textbf{APT*} \\
 \midrule
+2D Rand.
+  & $\mathbf{2.8 \pm 0.6}$
+  & $59.4 \pm 2.4$
+  & $27.7 \pm 1.1$
+  & $9.3 \pm 0.6$
+  & $7.8 \pm 0.6$
+  & $124.2 \pm 13.4$ \\
 2D Maze
   & $\mathbf{4.1 \pm 2.2}$
   & $55.3 \pm 3.5$
@@ -1184,13 +1198,15 @@ lower on Cluttered ($p < 0.05$).
 This is the regime where Riemannian geometry provides the greatest
 benefit, as the joint-inertia condition number $\kappa \approx 12$
 creates high anisotropy.
-(2)~In 2-D, RIT* achieves the lowest cost on Narrow ($p < 0.01$) and
+(2)~In 2-D, RIT* achieves the lowest cost on Random World ($p < 0.01$)
+and Narrow ($p < 0.01$), and
 is competitive on Maze and Bug Trap; BIT* holds a slight edge on Maze.
 (3)~In 3-D, BIT* achieves the lowest cost.
 RIT*'s advantage grows with the anisotropy of the metric and the
 dimensionality of the space.
-(4)~On planning time, RIT* is the fastest on 6 of 8~environments,
-including a $13\times$ speedup on 2-D Maze versus BIT*.
+(4)~On planning time, RIT* is the fastest on 7 of 9~environments,
+including a $44\times$ speedup on 2-D Random World versus APT*
+and a $13\times$ speedup on 2-D Maze versus BIT*.
 On 6-D Shelf and Cluttered, BIT* is marginally faster but
 produces paths 6--11\% worse.
 (5)~APT*~\cite{APT2025} is competitive on simple 2-D environments but

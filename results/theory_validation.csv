@@ -1,15 +1,2 @@
 Environment,Vol Ratio (theory),Speedup (theory),Time Speedup (actual),Sample Speedup (actual)
-2D Maze,0.0678,14.75,41.02,1.00
-2D Narrow,0.5774,1.73,12.35,0.47
-2D Forest,0.0567,17.63,349.25,1.33
-2D Terrain,0.1669,5.99,259.82,7.50
-2D Bug Trap,0.2403,4.16,217.74,1.00
-2D Hyper-Dense,0.0801,12.48,189.01,1.29
-3D Spheres,0.0209,47.79,47.15,1.78
-3D Dense Lab,0.0223,44.93,53.63,2.25
-3D Corridor,0.2236,4.47,2.36,12.67
-3D Gauntlet,0.0730,13.71,2.50,2.42
-6D Hyper-Passage,0.1667,6.00,nan,1.00
-6D Tabletop,70.9730,0.01,6.87,1.00
-6D Shelf,70.9730,0.01,0.29,0.02
-6D Cluttered,70.9730,0.01,0.37,0.03
+2D Random World,0.0458,21.82,10.11,0.64

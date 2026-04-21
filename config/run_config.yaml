@@ -53,12 +53,12 @@
 #environments: [2D]
 
 planners:      ['RIT*', 'Informed RRT*', 'BIT*', 'AIT*', 'EIT*', 'APT*']
-environments:  ['random_world','dividing_wall','real_setup']
-
-#environments:  ['random_world','2D Diagonal', '2D Obstacle', '2D Narrow', '2D Maze', '2D Bug Trap', '2D Forest', '2D Terrain', '2D Hyper-Dense', '2D Joint Arm']
+environments:  ['random_world','dividing_wall']
+#['random_world','dividing_wall']
+#environments:  ['random_world','dividing_wall','2D Diagonal', '2D Obstacle', '2D Narrow', '2D Maze', '2D Bug Trap', '2D Forest', '2D Terrain', '2D Hyper-Dense', '2D Joint Arm']
 
 # Benchmark parameters
-n_trials: 1
+n_trials: 5
 max_iterations: 150
 batch_size: 100
 base_seed: 42
@@ -67,7 +67,7 @@ base_seed: 42
 # save_image: save PNG/PDF plots of tree, path, and metric field
 # save_gif:   save animated GIFs of tree growth
 save_image: true
-save_gif: false
+save_gif: true
 
 # ── Benchmark (AIT*/EIT* style) ───────────────────────────────────────
 # run_benchmark_plots: run the multi-trial data collection; if false
@@ -89,7 +89,7 @@ bench_base_seed: 42
 # run_mc: run the full Monte Carlo comparison pipeline
 #         (generates CSV tables, convergence plots, box plots, etc.)
 # mc parameters below are only used when run_mc is true.
-run_mc: false
+run_mc: true
 mc_n_trials: 10
 mc_max_iterations: 150
 mc_batch_size: 100

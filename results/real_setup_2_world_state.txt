@@ -6,37 +6,37 @@
   Base position (world) : [0.000, 0.000, 0.76990]
 
 --- Shelf ---
-  Position (bottom-centre) : [0.67138, -0.68403, 0.75400]
+  Position (bottom-centre) : [-0.67138, -0.68403, 0.75400]
   Top panel Z              : 1.29400
   Dimensions (W x D x H)   : 0.32 x 0.24 x 0.54 m
 
 --- Mustard Bottle (attached to gripper) ---
-  Start position (world) : [0.61139, -0.68405, 1.12405]
+  Start position (world) : [-0.67157, -0.66898, 1.12398]
   Scale                  : 0.1
   Attached to EE link    : 9
 
 --- Obstacle list (collision-checked) ---
-  [0] box  pos=[0.33569, -0.34202, 0.725]  half_extents=[0.75, 0.7, 0.025]
-  [1] box  pos=[0.78138, -0.68403, 1.024]  half_extents=[0.01, 0.16, 0.27]
-  [2] box  pos=[0.67138, -0.83403, 1.024]  half_extents=[0.12, 0.01, 0.27]
-  [3] box  pos=[0.67138, -0.53403, 1.024]  half_extents=[0.12, 0.01, 0.27]
-  [4] box  pos=[0.67138, -0.68403, 0.764]  half_extents=[0.12, 0.16, 0.01]
-  [5] box  pos=[0.67138, -0.68403, 1.024]  half_extents=[0.12, 0.16, 0.01]
-  [6] box  pos=[0.67138, -0.68403, 1.284]  half_extents=[0.12, 0.16, 0.01]
+  [0] box  pos=[-0.34, -0.07, 0.725]  half_extents=[0.5, 0.75, 0.025]
+  [1] box  pos=[-0.67138, -0.79403, 1.024]  half_extents=[0.16, 0.01, 0.27]
+  [2] box  pos=[-0.82138, -0.68403, 1.024]  half_extents=[0.01, 0.12, 0.27]
+  [3] box  pos=[-0.52138, -0.68403, 1.024]  half_extents=[0.01, 0.12, 0.27]
+  [4] box  pos=[-0.67138, -0.68403, 0.764]  half_extents=[0.16, 0.12, 0.01]
+  [5] box  pos=[-0.67138, -0.68403, 1.024]  half_extents=[0.16, 0.12, 0.01]
+  [6] box  pos=[-0.67138, -0.68403, 1.284]  half_extents=[0.16, 0.12, 0.01]
 
 --- Start Configuration (grasp from Phase 1) ---
-  q_start (rad) : [-1.275213, -0.892989, 1.727716, -3.975099, -0.295581, 1.569577]
-  EE position   : [0.50689, -0.68405, 1.12409]
+  q_start (rad) : [-2.813000, -0.892000, 1.726000, -3.975000, -0.329000, 1.570000]
+  EE position   : [-0.67151, -0.52948, 1.12401]
 
 --- Goal Configuration (place on shelf top) ---
-  q_goal  (rad) : [-1.202855, -1.106429, 1.509444, -3.543912, -0.367940, 1.570105]
-  EE position   : [0.56689, -0.68404, 1.39408]
-  x_ee (approach) : [1.00000, 0.00000, -0.00025]
-  y_ee (open)     : [-0.00000, 1.00000, -0.00004]
+  q_goal  (rad) : [-2.753077, -1.111674, 1.517416, -3.546718, -0.388514, 1.570186]
+  EE position   : [-0.67139, -0.57954, 1.39408]
+  x_ee (approach) : [0.00000, -1.00000, -0.00023]
+  y_ee (open)     : [1.00000, 0.00000, -0.00004]
 
 --- Planner ---
   Algorithm     : RIT*
   Metric        : DiagonalAnisotropicMetric
-  Path cost     : 0.590728
+  Path cost     : 0.842551
   Waypoints     : 5
   Bottle collision : ENABLED (attached body)

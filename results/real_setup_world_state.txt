@@ -8,38 +8,38 @@
 
 --- Table ---
   Surface Z     : 0.75000 m
-  Centre (x,y)  : [0.33569, -0.34202]
-  Dimensions    : 1.50 x 1.40 x 0.05 m (L x W x Thick)
+  Centre (x,y)  : [-0.34000, -0.07000]
+  Dimensions    : 1.00 x 1.50 x 0.05 m (L x W x Thick)
 
 --- Shelf (2-compartment, open-front) ---
-  World position (bottom-centre) : [0.67138, -0.68403, 0.75400]
-  Relative to robot base         : [0.67138, -0.68403, -0.01590]
+  World position (bottom-centre) : [-0.67138, -0.68403, 0.75400]
+  Relative to robot base         : [-0.67138, -0.68403, -0.01590]
   Dimensions (W x D x H)         : 0.32 x 0.24 x 0.54 m
   Panel thickness                 : 0.02 m
   Upper compartment floor Z       : 1.03400 m
 
 --- Mustard Bottle (YCB 006) ---
-  Position (world) : [0.67138, -0.68403, 1.11400]
+  Position (world) : [-0.67138, -0.68403, 1.11400]
   Scale            : 0.1
 
 --- Obstacle list (collision-checked) ---
-  [0] box  pos=[0.33569, -0.34202, 0.725]  half_extents=[0.75, 0.7, 0.025]
-  [1] box  pos=[0.78138, -0.68403, 1.024]  half_extents=[0.01, 0.16, 0.27]
-  [2] box  pos=[0.67138, -0.83403, 1.024]  half_extents=[0.12, 0.01, 0.27]
-  [3] box  pos=[0.67138, -0.53403, 1.024]  half_extents=[0.12, 0.01, 0.27]
-  [4] box  pos=[0.67138, -0.68403, 0.764]  half_extents=[0.12, 0.16, 0.01]
-  [5] box  pos=[0.67138, -0.68403, 1.024]  half_extents=[0.12, 0.16, 0.01]
-  [6] box  pos=[0.67138, -0.68403, 1.284]  half_extents=[0.12, 0.16, 0.01]
+  [0] box  pos=[-0.34, -0.07, 0.725]  half_extents=[0.5, 0.75, 0.025]
+  [1] box  pos=[-0.67138, -0.79403, 1.024]  half_extents=[0.16, 0.01, 0.27]
+  [2] box  pos=[-0.82138, -0.68403, 1.024]  half_extents=[0.01, 0.12, 0.27]
+  [3] box  pos=[-0.52138, -0.68403, 1.024]  half_extents=[0.01, 0.12, 0.27]
+  [4] box  pos=[-0.67138, -0.68403, 0.764]  half_extents=[0.16, 0.12, 0.01]
+  [5] box  pos=[-0.67138, -0.68403, 1.024]  half_extents=[0.16, 0.12, 0.01]
+  [6] box  pos=[-0.67138, -0.68403, 1.284]  half_extents=[0.16, 0.12, 0.01]
 
 --- Start Configuration ---
-  q_start (rad) : [0.000000, -1.570796, 0.000000, -1.570796, 0.000000, 0.000000]
-  EE position   : [-0.00000, 0.29070, 2.25470]
+  q_start (rad) : [-1.570796, -1.570796, 1.570796, -1.570796, -1.570796, 0.000000]
+  EE position   : [0.17415, -0.69140, 1.44675]
 
 --- Goal Configuration ---
-  q_goal  (rad) : [-1.275213, -0.892989, 1.727716, -3.975099, -0.295581, 1.569577]
-  EE position   : [0.50689, -0.68405, 1.12409]
-  x_ee (approach) : [1.00000, 0.00000, -0.00036]
-  y_ee (open)     : [-0.00000, 1.00000, -0.00005]
+  q_goal  (rad) : [-2.812899, -0.892185, 1.726124, -3.974583, -0.328692, 1.569850]
+  EE position   : [-0.67140, -0.52954, 1.12409]
+  x_ee (approach) : [0.00000, -1.00000, -0.00031]
+  y_ee (open)     : [1.00000, 0.00000, -0.00005]
 
 --- Planner ---
   Algorithm     : RIT*
@@ -47,5 +47,5 @@
   Weights       : [0.56463, 1.0, 0.30565, 0.16091, 0.15171, 0.04712]
   Batch size    : 200
   Max iters     : 300
-  Path cost     : 2.585611
-  Waypoints     : 3
+  Path cost     : 2.411686
+  Waypoints     : 4

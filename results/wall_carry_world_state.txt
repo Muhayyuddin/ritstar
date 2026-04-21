@@ -1,0 +1,40 @@
+==============================================================
+  Wall Carry Demo — World State
+==============================================================
+
+--- Robot ---
+  Base position : [0.000, 0.000, 0.76990]
+
+--- Table ---
+  Surface Z     : 0.75000 m
+  Centre (x,y)  : [-0.290, -0.070]
+  Dimensions    : 1.00 x 1.50 x 0.05 m
+
+--- Wall ---
+  Centre        : [-0.600, 0.000, 1.020]
+  Dimensions    : 0.540(x) x 0.182(y) x 0.500(z)
+
+--- Tomato Soup Can (YCB 005) ---
+  Attached to EE with fixed joint
+  Height        : 0.110 m
+
+--- Obstacle list (collision-checked) ---
+  [0] box  pos=[-0.29, -0.07, 0.725]  half_extents=[0.5, 0.75, 0.025]
+  [1] box  pos=[-0.6, 0.0, 1.0199]  half_extents=[0.27, 0.091, 0.25]
+
+--- Start Configuration (grasp, −y side) ---
+  q_start (rad) : [-2.572064, -1.077969, 1.838196, -2.331039, -1.570793, -1.001271]
+  EE position   : [-0.59996, -0.59095, 0.97999]
+
+--- Goal Configuration (+y side, place) ---
+  q_goal  (rad) : [-4.041866, -1.212500, 2.058267, -2.416550, -1.570792, -2.471077]
+  EE position   : [-0.57996, 0.45099, 0.98005]
+
+--- Planner ---
+  Algorithm     : RIT*
+  Metric        : DiagonalAnisotropicMetric
+  Weights       : [0.60155, 1.0, 0.2993, 0.15159, 0.15159, 0.01562]
+  Batch size    : 200
+  Max iters     : 300
+  Path cost     : 2.073192
+  Waypoints     : 3

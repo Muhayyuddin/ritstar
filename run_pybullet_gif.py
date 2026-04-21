@@ -120,6 +120,44 @@ def render_path_gif(scene_name, scene_fn, batch_size=200, max_iterations=300):
     metric = ManipulatorInertiaMetric(env)
     cid = env.physics_client
 
+    # ── Floor colour ───────────────────────────────────────────────
+    p.changeVisualShape(env.plane_id, -1,
+                        rgbaColor=[0.78, 0.78, 0.78, 1.0],
+                        physicsClientId=cid)
+
+    # ── Robot colours ─────────────────────────────────────────────
+    UR_SILVER = [0.35, 0.35, 0.35, 1.0]
+    UR_DARK   = [0.22, 0.22, 0.22, 1.0]
+    UR_BLUE   = [0.00, 0.34, 0.68, 1.0]
+    RQ_DARK   = [0.15, 0.15, 0.15, 1.0]
+    RQ_BLACK  = [0.08, 0.08, 0.08, 1.0]
+    rid = env.robot_id
+    n = p.getNumJoints(rid, physicsClientId=cid)
+    link_name_to_idx = {}
+    for i in range(n):
+        info = p.getJointInfo(rid, i, physicsClientId=cid)
+        link_name_to_idx[info[12].decode("utf-8")] = i
+    p.changeVisualShape(rid, -1, rgbaColor=UR_DARK, physicsClientId=cid)
+    ur_colour_map = {
+        "base_link_inertia": UR_DARK,
+        "shoulder_link":     UR_BLUE,
+        "upper_arm_link":    UR_SILVER,
+        "forearm_link":      UR_SILVER,
+        "wrist_1_link":      UR_DARK,
+        "wrist_2_link":      UR_SILVER,
+        "wrist_3_link":      UR_DARK,
+        "flange":            UR_DARK,
+        "tool0":             UR_DARK,
+    }
+    for lname, colour in ur_colour_map.items():
+        if lname in link_name_to_idx:
+            p.changeVisualShape(rid, link_name_to_idx[lname],
+                                rgbaColor=colour, physicsClientId=cid)
+    for lname, lidx in link_name_to_idx.items():
+        if "robotiq" in lname:
+            clr = RQ_BLACK if "finger_tip" in lname else RQ_DARK
+            p.changeVisualShape(rid, lidx, rgbaColor=clr, physicsClientId=cid)
+
     # ── Plan ──
     print(f"  [PLAN] batch_size={batch_size}, max_iter={max_iterations}")
     planner = build_rit_star_planner(

@@ -189,6 +189,57 @@ def _get_hyper_dense_obstacles():
 
 OBSTACLE_DEFS['2D Hyper-Dense']['data'] = _get_hyper_dense_obstacles()
 
+# Alias: env registry uses '2D Obstacle' but dict has '2D Obstacles'
+OBSTACLE_DEFS['2D Obstacle'] = OBSTACLE_DEFS['2D Obstacles']
+
+# Dividing wall obstacles (wall 0.47–0.53 + flanking blocks)
+OBSTACLE_DEFS['2D Dividing Wall'] = {
+    'type': 'rects',
+    'data': [
+        ([0.47, 0.00], [0.53, 0.10]),
+        ([0.47, 0.13], [0.53, 0.85]),
+        ([0.47, 0.88], [0.53, 1.00]),
+        ([0.25, 0.70], [0.35, 0.85]),
+        ([0.65, 0.15], [0.75, 0.30]),
+    ]
+}
+
+# Joint arm: C-space obstacles can't be drawn as simple 2D shapes
+OBSTACLE_DEFS['2D Joint Arm'] = {'type': 'none', 'data': None}
+
+
+def _get_random_world_obstacles():
+    """Reproduce the random-world obstacle positions (seed 2015_04)."""
+    x_start = np.array([-0.1, -0.1])
+    x_goal  = np.array([ 0.4,  0.4])
+    rng = np.random.default_rng(2015_04)
+    n_obs = 35
+    rects = []
+    for _ in range(n_obs * 50):
+        if len(rects) >= n_obs:
+            break
+        ax_ = rng.uniform(-0.5, 0.5)
+        ay_ = rng.uniform(-0.5, 0.5)
+        w = rng.uniform(0.1, 0.2)
+        h = rng.uniform(0.1, 0.2)
+        lo = [ax_, ay_]
+        hi = [ax_ + w, ay_ + h]
+        clr = 0.06
+        if (lo[0] <= x_start[0] + clr and hi[0] >= x_start[0] - clr and
+            lo[1] <= x_start[1] + clr and hi[1] >= x_start[1] - clr):
+            continue
+        if (lo[0] <= x_goal[0] + clr and hi[0] >= x_goal[0] - clr and
+            lo[1] <= x_goal[1] + clr and hi[1] >= x_goal[1] - clr):
+            continue
+        rects.append((lo, hi))
+    return rects[:n_obs]
+
+
+OBSTACLE_DEFS['2D Random World'] = {
+    'type': 'rects',
+    'data': _get_random_world_obstacles(),
+}
+
 
 def compute_metric_field(metric, bounds, res=150, collision_fn=None):
     """Compute sqrt of the max eigenvalue of G(x) on a grid.
@@ -225,8 +276,8 @@ def compute_metric_field(metric, bounds, res=150, collision_fn=None):
     return X, Y, S
 
 
-def draw_obstacles_2d(ax, env_name):
-    """Draw obstacles on a 2D axes."""
+def draw_obstacles_2d(ax, env_name, bounds=None):
+    """Draw obstacles on a 2D axes, clipped to bounds if provided."""
     obs = OBSTACLE_DEFS.get(env_name)
     if obs is None or obs['type'] == 'none':
         return
@@ -235,8 +286,17 @@ def draw_obstacles_2d(ax, env_name):
             ax.add_patch(Circle(c, r, fc='#333333', ec='white', lw=1.5, ls='--', alpha=0.8))
     elif obs['type'] == 'rects':
         for lo, hi in obs['data']:
-            w, h = hi[0] - lo[0], hi[1] - lo[1]
-            ax.add_patch(Rectangle(lo, w, h, fc='#333333', ec='white', lw=1.5, ls='--', alpha=0.8))
+            x0, y0 = lo[0], lo[1]
+            x1, y1 = hi[0], hi[1]
+            if bounds is not None:
+                x0 = max(x0, bounds[0][0])
+                y0 = max(y0, bounds[1][0])
+                x1 = min(x1, bounds[0][1])
+                y1 = min(y1, bounds[1][1])
+                if x1 <= x0 or y1 <= y0:
+                    continue
+            w, h = x1 - x0, y1 - y0
+            ax.add_patch(Rectangle((x0, y0), w, h, fc='#333333', ec='white', lw=1.5, ls='--', alpha=0.8))
     elif obs['type'] == 'terrain_peaks':
         for cx, cy in obs['data']:
             ax.add_patch(Circle([cx, cy], 0.09, fc='#FFB74D', ec='#E65100',
@@ -320,7 +380,7 @@ def plot_heatmap_with_path(env_name, env_fn, save_prefix):
     im = ax.imshow(S, origin='lower', extent=extent, cmap='hot_r', aspect='equal')
     plt.colorbar(im, ax=ax, label='Metric scale √λ_max(G)')
 
-    draw_obstacles_2d(ax, env_name)
+    draw_obstacles_2d(ax, env_name, bounds=bounds)
 
     # Draw path
     if path and len(path) > 1:
@@ -407,7 +467,7 @@ def plot_combined_heatmaps():
         im = ax.imshow(S, origin='lower', extent=extent, cmap='hot_r', aspect='equal')
         fig.colorbar(im, ax=ax, shrink=0.8)
 
-        draw_obstacles_2d(ax, env_name)
+        draw_obstacles_2d(ax, env_name, bounds=bounds)
 
         if path and len(path) > 1:
             pp = np.array(path)
@@ -466,25 +526,38 @@ def animate_tree_growth(env_name, env_fn, save_prefix,
 
     print(f'  Collected {len(snapshots)} frames for {env_name}')
 
-    # Build the animation
-    fig, ax = plt.subplots(figsize=(8, 7))
+    # Build the animation — match figure aspect ratio to domain
+    x_range = bounds[0][1] - bounds[0][0]
+    y_range = bounds[1][1] - bounds[1][0]
+    base_size = 7
+    if x_range >= y_range:
+        fig_w = base_size
+        fig_h = base_size * (y_range / x_range)
+    else:
+        fig_h = base_size
+        fig_w = base_size * (x_range / y_range)
+    fig, ax = plt.subplots(figsize=(fig_w, fig_h))
 
     # Static background: heatmap
     ax.imshow(S, origin='lower', extent=extent, cmap='hot_r', aspect='equal')
-    draw_obstacles_2d(ax, env_name)
+    draw_obstacles_2d(ax, env_name, bounds=bounds)
     ax.plot(*xs, 'go', ms=12, zorder=10)
     ax.plot(*xg, 'r^', ms=12, zorder=10)
-    ax.set_xlabel('x₁')
-    ax.set_ylabel('x₂')
+    ax.set_xlim(bounds[0])
+    ax.set_ylim(bounds[1])
+    ax.autoscale(False)
+    ax.set_xlabel('x₁', fontsize=14)
+    ax.set_ylabel('x₂', fontsize=14)
+    ax.tick_params(axis='both', labelsize=12)
 
     # Dynamic elements
     edge_collection = LineCollection([], colors='#4FC3F7', linewidths=0.5,
                                      alpha=0.6, zorder=2)
     ax.add_collection(edge_collection)
-    path_line, = ax.plot([], [], '#00FF00', lw=2.5, zorder=5)
+    path_line, = ax.plot([], [], '#00FF00', lw=3.5, zorder=5)
     vertex_scatter = ax.scatter([], [], c='#90CAF9', s=4, zorder=3, alpha=0.7)
-    title = ax.set_title('', fontsize=12)
-    fig.tight_layout()
+    title = ax.set_title('', fontsize=14)
+    fig.tight_layout(pad=0.5)
 
     def update(frame_idx):
         snap = snapshots[frame_idx]

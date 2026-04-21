@@ -291,6 +291,109 @@ def _generate_success_rate_table(all_results):
     return rows
 
 
+def _generate_aggregated_table(all_results):
+    """Summary aggregated across environments — one row per planner.
+
+    For each planner, average its per-env mean cost, per-env mean time, and
+    per-env success rate over all environments in ``all_results``.
+    """
+    env_names = list(all_results.keys())
+    header = [
+        'Planner',
+        'Mean cost (avg envs)',
+        'Mean time (s, avg envs)',
+        'Success rate (avg envs)',
+        'N envs',
+    ]
+    rows = [header]
+
+    for pname in PLANNER_NAMES:
+        env_cost_means = []
+        env_time_means = []
+        env_success = []
+        for env_name in env_names:
+            trials = all_results[env_name].get(pname, [])
+            finite = [t['final_cost'] for t in trials
+                      if np.isfinite(t['final_cost'])]
+            if finite:
+                env_cost_means.append(float(np.mean(finite)))
+            times = [t['time_elapsed'] for t in trials]
+            if times:
+                env_time_means.append(float(np.mean(times)))
+            if trials:
+                rate = sum(1 for t in trials
+                           if np.isfinite(t['final_cost'])) / len(trials)
+                env_success.append(rate)
+
+        if env_cost_means:
+            cost_str = f'{np.mean(env_cost_means):.4f} ± {np.std(env_cost_means):.4f}'
+        else:
+            cost_str = 'no sol.'
+        time_str = (f'{np.mean(env_time_means):.2f} ± {np.std(env_time_means):.2f}'
+                    if env_time_means else 'n/a')
+        succ_str = (f'{np.mean(env_success) * 100:.0f}%'
+                    if env_success else 'n/a')
+        rows.append([pname, cost_str, time_str, succ_str, len(env_names)])
+
+    return rows
+
+
+def _plot_aggregated_summary(all_results,
+                             filename='comparison_aggregated.png'):
+    """2-panel bar chart: mean cost and mean time per planner, averaged
+    across all environments (one bar per planner, not per env).
+    """
+    env_names = list(all_results.keys())
+    if not env_names:
+        return
+
+    cost_means, cost_stds = [], []
+    time_means, time_stds = [], []
+    for pname in PLANNER_NAMES:
+        env_cost_means = []
+        env_time_means = []
+        for env_name in env_names:
+            trials = all_results[env_name].get(pname, [])
+            finite = [t['final_cost'] for t in trials
+                      if np.isfinite(t['final_cost'])]
+            if finite:
+                env_cost_means.append(float(np.mean(finite)))
+            times = [t['time_elapsed'] for t in trials]
+            if times:
+                env_time_means.append(float(np.mean(times)))
+        cost_means.append(np.mean(env_cost_means) if env_cost_means else 0.0)
+        cost_stds.append(np.std(env_cost_means) if env_cost_means else 0.0)
+        time_means.append(np.mean(env_time_means) if env_time_means else 0.0)
+        time_stds.append(np.std(env_time_means) if env_time_means else 0.0)
+
+    fig, (ax_c, ax_t) = plt.subplots(1, 2, figsize=(12, 5))
+    xs = np.arange(len(PLANNER_NAMES))
+    colors = [PLANNER_COLORS[p] for p in PLANNER_NAMES]
+
+    ax_c.bar(xs, cost_means, yerr=cost_stds, color=colors, alpha=0.85,
+             capsize=4, edgecolor='white', linewidth=0.5)
+    ax_c.set_xticks(xs)
+    ax_c.set_xticklabels(PLANNER_NAMES, rotation=15, fontsize=9)
+    ax_c.set_ylabel('Mean final cost (avg over envs)')
+    ax_c.set_title(f'Cost — averaged over {len(env_names)} environment(s)')
+    ax_c.grid(True, alpha=0.3, axis='y')
+
+    ax_t.bar(xs, time_means, yerr=time_stds, color=colors, alpha=0.85,
+             capsize=4, edgecolor='white', linewidth=0.5)
+    ax_t.set_xticks(xs)
+    ax_t.set_xticklabels(PLANNER_NAMES, rotation=15, fontsize=9)
+    ax_t.set_ylabel('Mean time (s, avg over envs)')
+    ax_t.set_title(f'Time — averaged over {len(env_names)} environment(s)')
+    ax_t.grid(True, alpha=0.3, axis='y')
+
+    fig.suptitle('Aggregated planner comparison (env-mean of per-env means)',
+                 fontsize=11, fontweight='bold')
+    fig.tight_layout()
+    fig.savefig(filename, dpi=150, bbox_inches='tight')
+    plt.close(fig)
+    print(f'  → saved {filename}')
+
+
 def _save_csv(rows, filename):
     with open(filename, 'w') as f:
         for row in rows:
@@ -1096,7 +1199,8 @@ def run_full_comparison(n_trials: int = 10,
                         max_iterations: int = 150,
                         batch_size: int = 100,
                         base_seed: int = 42,
-                        visualize: bool = True):
+                        visualize: bool = True,
+                        environments: dict = None):
     """Run the complete 6-planner × 6-environment comparison.
 
     Parameters
@@ -1113,14 +1217,19 @@ def run_full_comparison(n_trials: int = 10,
         If True (default), generate and save PNG plots, CSVs, and
         all heavy visualization artefacts.  If False, only print
         summary tables to stdout — much faster for benchmarking.
+    environments : dict or None
+        Optional dict of {env_name: env_fn} to run. If None, uses
+        the default COMPARISON_ENVS registry.
 
     Returns
     -------
     all_results : dict[env_name -> dict[planner_name -> list[dict]]]
     """
+    envs = environments if environments is not None else COMPARISON_ENVS
+
     print('\n' + '=' * 60)
     print('  FULL PLANNER COMPARISON')
-    print(f'  {len(PLANNER_NAMES)} planners × {len(COMPARISON_ENVS)} environments'
+    print(f'  {len(PLANNER_NAMES)} planners × {len(envs)} environments'
           f' × {n_trials} trials')
     print('=' * 60)
 
@@ -1131,7 +1240,7 @@ def run_full_comparison(n_trials: int = 10,
     cache_dir = os.path.join(RESULTS_DIR, '_comparison_cache')
     os.makedirs(cache_dir, exist_ok=True)
 
-    for ei, (env_name, env_fn) in enumerate(COMPARISON_ENVS.items()):
+    for ei, (env_name, env_fn) in enumerate(envs.items()):
         safe_name = env_name.lower().replace(' ', '_')
         cache_path = os.path.join(cache_dir, f'{safe_name}.pkl')
 
@@ -1141,13 +1250,13 @@ def run_full_comparison(n_trials: int = 10,
                 cached = pickle.load(f)
             # Validate that cached data matches current planner set
             if set(cached.keys()) - {'_theory'} == set(PLANNER_NAMES):
-                print(f'\n  [{ei + 1}/{len(COMPARISON_ENVS)}] {env_name}  (cached)')
+                print(f'\n  [{ei + 1}/{len(envs)}] {env_name}  (cached)')
                 all_results[env_name] = cached
                 continue
             else:
                 os.remove(cache_path)  # stale cache, re-run
 
-        print(f'\n  [{ei + 1}/{len(COMPARISON_ENVS)}] {env_name}')
+        print(f'\n  [{ei + 1}/{len(envs)}] {env_name}')
         results = _run_single_env(
             env_name, env_fn, n_trials, max_iterations,
             batch_size, base_seed + ei * 1000)
@@ -1173,10 +1282,17 @@ def run_full_comparison(n_trials: int = 10,
     success_table = _generate_success_rate_table(all_results)
     _print_table(success_table, 'SUCCESS RATE')
 
+    # Aggregated-across-envs summary (one row per planner)
+    aggregated_table = _generate_aggregated_table(all_results)
+    _print_table(aggregated_table,
+                 f'AGGREGATED ACROSS {len(all_results)} ENVIRONMENT(S)')
+
     if visualize:
         _save_csv(cost_table, os.path.join(RESULTS_DIR, 'comparison_cost_table.csv'))
         _save_csv(time_table, os.path.join(RESULTS_DIR, 'comparison_time_table.csv'))
         _save_csv(success_table, os.path.join(RESULTS_DIR, 'comparison_success_table.csv'))
+        _save_csv(aggregated_table,
+                  os.path.join(RESULTS_DIR, 'comparison_aggregated.csv'))
 
         # ── Plots ─────────────────────────────────────────────────────
         print('\n  Generating plots...')
@@ -1187,6 +1303,9 @@ def run_full_comparison(n_trials: int = 10,
         _plot_bar_summary(all_results, os.path.join(PLOTS_DIR, 'comparison_bar_summary.png'))
         _plot_time_bar(all_results, os.path.join(PLOTS_DIR, 'comparison_time_bar.png'))
         _plot_mc_statistics(all_results, os.path.join(PLOTS_DIR, 'comparison_mc_stats.png'))
+        _plot_aggregated_summary(
+            all_results,
+            os.path.join(PLOTS_DIR, 'comparison_aggregated.png'))
 
         # Per-environment convergence plots
         for env_name in all_results:
@@ -1208,7 +1327,7 @@ def run_full_comparison(n_trials: int = 10,
 
         # ── Per-environment visualizations (tree + path + obstacles) ──
         print('\n  Generating environment visualizations...')
-        for env_name, env_fn in COMPARISON_ENVS.items():
+        for env_name, env_fn in envs.items():
             _visualize_env_with_path(env_name, env_fn, PLOTS_DIR)
 
     print(f'\n  Comparison complete. Total time: {total_time:.1f}s')

@@ -322,11 +322,11 @@ def load_config(path: str) -> dict:
 # Planner colors for comparison figures (matches rit_star/comparison.py)
 _PLANNER_COLORS = {
     'RIT*':          '#7B2FBE',   # purple
-    'RIT*-CARM':     '#00695C',   # teal
+    'RIT*-CARM':     '#00695C',   # dark teal
     'Informed RRT*': '#2196F3',   # blue
-    'BIT*':          '#4CAF50',   # green
+    'BIT*':          '#E91E63',   # pink
     'AIT*':          '#FF9800',   # orange
-    'EIT*':          '#00897B',   # teal
+    'EIT*':          '#795548',   # brown
     'APT*':          '#F44336',   # red
 }
 
@@ -375,11 +375,12 @@ def _save_image_2d(env_name, planner, path, coll, metric, xs, xg, bounds):
     if path and len(path) > 1:
         px = [p[0] for p in path]
         py = [p[1] for p in path]
-        ax.plot(px, py, color='red', lw=2.5, zorder=4)
+        ax.plot(px, py, color='red', lw=3.5, zorder=4)
     ax.plot(*xs, 'go', ms=10, zorder=5)
     ax.plot(*xg, 'r^', ms=10, zorder=5)
-    ax.set_xlabel('x₁')
-    ax.set_ylabel('x₂')
+    ax.set_xlabel('x₁', fontsize=14)
+    ax.set_ylabel('x₂', fontsize=14)
+    ax.tick_params(axis='both', labelsize=12)
     out_path = os.path.join(PLOTS_DIR, f'config_{safe}_path.png')
     fig.savefig(out_path, dpi=150, bbox_inches='tight')
     plt.close(fig)
@@ -400,11 +401,12 @@ def _save_image_2d(env_name, planner, path, coll, metric, xs, xg, bounds):
     if path and len(path) > 1:
         px = [p[0] for p in path]
         py = [p[1] for p in path]
-        ax.plot(px, py, color='red', lw=2.5, zorder=4)
+        ax.plot(px, py, color='red', lw=3.5, zorder=4)
     ax.plot(*xs, 'ko', ms=10, zorder=5)
     ax.plot(*xg, 'k^', ms=10, zorder=5)
-    ax.set_xlabel('x₁')
-    ax.set_ylabel('x₂')
+    ax.set_xlabel('x₁', fontsize=14)
+    ax.set_ylabel('x₂', fontsize=14)
+    ax.tick_params(axis='both', labelsize=12)
     out_tree = os.path.join(IMAGES_DIR, f'config_{safe}_tree.png')
     fig.savefig(out_tree, dpi=150, bbox_inches='tight')
     plt.close(fig)
@@ -454,7 +456,7 @@ def _save_comparison_figure_2d(env_name, planner_records, xs, xg, bounds):
         # Path
         if rec['path'] is not None and len(rec['path']) > 1:
             pa = rec['path']
-            ax.plot(pa[:, 0], pa[:, 1], color=color, lw=2.5,
+            ax.plot(pa[:, 0], pa[:, 1], color=color, lw=3.5,
                     zorder=6, solid_capstyle='round')
 
         # Start / Goal markers
@@ -473,6 +475,57 @@ def _save_comparison_figure_2d(env_name, planner_records, xs, xg, bounds):
     fig.savefig(out, dpi=150, bbox_inches='tight')
     plt.close(fig)
     print(f'        Saved comparison figure: {out}')
+
+
+def _save_comparison_figure_3d(env_name, planner_records, xs, xg, bounds):
+    """Save a side-by-side comparison figure for all planners on one 3D env."""
+    safe_env = env_name.lower().replace(' ', '_').replace('*', '').replace('-', '_')
+    n = len(planner_records)
+    if n == 0:
+        return
+
+    fig = plt.figure(figsize=(5 * n, 5))
+
+    for idx, rec in enumerate(planner_records):
+        ax = fig.add_subplot(1, n, idx + 1, projection='3d')
+        pname = rec['planner_name']
+        color = _PLANNER_COLORS.get(pname, '#333333')
+
+        if bounds is not None:
+            ax.set_xlim(bounds[0])
+            ax.set_ylim(bounds[1])
+            ax.set_zlim(bounds[2])
+
+        # Tree edges
+        for p1, p2 in rec['tree_edges']:
+            ax.plot([p1[0], p2[0]], [p1[1], p2[1]], [p1[2], p2[2]],
+                    color='green', lw=0.4, alpha=0.5, zorder=1)
+
+        # Obstacles on top of tree
+        _draw_obstacles_3d_static(ax, env_name)
+
+        # Path
+        if rec['path'] is not None and len(rec['path']) > 1:
+            pa = rec['path']
+            ax.plot(pa[:, 0], pa[:, 1], pa[:, 2], color=color, lw=3.5,
+                    zorder=6, solid_capstyle='round')
+
+        # Start / Goal markers
+        ax.scatter(*xs, c='#2E7D32', s=80, zorder=7, marker='o')
+        ax.scatter(*xg, c='#C62828', s=80, zorder=7, marker='^')
+
+        cost_str = f'{rec["cost"]:.4f}' if np.isfinite(rec['cost']) else 'no soln'
+        ax.set_title(
+            f'{pname}\ncost={cost_str}  time={rec["time"]:.1f}s',
+            color=color, fontsize=10, fontweight='bold'
+        )
+
+    fig.suptitle(f'Path Comparison — {env_name}', fontsize=13, fontweight='bold')
+    fig.tight_layout()
+    out = os.path.join(IMAGES_DIR, f'path_comparison_{safe_env}.png')
+    fig.savefig(out, dpi=150, bbox_inches='tight')
+    plt.close(fig)
+    print(f'        Saved 3D comparison figure: {out}')
 
 
 def _draw_obstacles_3d_static(ax, env_name):
@@ -505,8 +558,7 @@ def _draw_obstacles_3d_static(ax, env_name):
                                     facecolor='#666666', edgecolor='#333333', linewidth=0.4)
             ax.add_collection3d(poly)
 
-    elif env_name in ('3D Spheres', '3D Dense Lab', '3D Narrow',
-                      '3D Corridor', '3D Gauntlet'):
+    elif env_name in ('3D Spheres', '3D Dense Lab', '3D Gauntlet'):
         if env_name == '3D Spheres':
             offsets = [-0.35, 0.35]
             centres = [[x, y, z]
@@ -522,8 +574,16 @@ def _draw_obstacles_3d_static(ax, env_name):
                 [0.0,0.0,0.5],[-0.6,-0.3,0.3],[0.5,-0.1,0.4],
             ]
             r = 0.18
-        else:
-            return
+        else:  # 3D Gauntlet
+            centres = [
+                [-0.6, 0.25, 0.0], [-0.2, 0.25, 0.0],
+                [ 0.2, 0.25, 0.0], [ 0.6, 0.25, 0.0],
+                [-0.4,-0.25, 0.0], [ 0.0,-0.25, 0.0],
+                [ 0.4,-0.25, 0.0], [-0.1, 0.0, 0.30],
+                [ 0.1, 0.0,-0.30], [-0.7,-0.15, 0.25],
+                [ 0.7, 0.15,-0.25], [ 0.0, 0.0, 0.0],
+            ]
+            r = 0.20
         u = np.linspace(0, 2 * np.pi, 14)
         v = np.linspace(0, np.pi, 10)
         for c in centres:
@@ -532,6 +592,32 @@ def _draw_obstacles_3d_static(ax, env_name):
             zs_ = c[2] + r * np.outer(np.ones_like(u), np.cos(v))
             ax.plot_surface(xs_, ys_, zs_, color='#606060',
                             alpha=0.6, shade=True, linewidth=0)
+
+    elif env_name == '3D Narrow':
+        # Wall slab at x=[0.47, 0.53] with cylindrical hole at (y,z)=(0.5,0.5), r=0.09
+        wall_faces = _box_faces([0.47, 0.0, 0.0], [0.53, 1.0, 1.0])
+        poly = Poly3DCollection(wall_faces, alpha=0.25,
+                                facecolor='#888888', edgecolor='#555555', linewidth=0.3)
+        ax.add_collection3d(poly)
+        # Mark hole with translucent circle
+        u = np.linspace(0, 2 * np.pi, 30)
+        ys_ = 0.5 + 0.09 * np.cos(u)
+        zs_ = 0.5 + 0.09 * np.sin(u)
+        ax.plot([0.50]*len(u), ys_, zs_, color='#00cc00', lw=2.0, alpha=0.8)
+
+    elif env_name == '3D Corridor':
+        # 4 axis-aligned box obstacles
+        corridor_boxes = [
+            ([0.28, 0.15, 0.0], [0.38, 1.0, 1.0]),
+            ([0.62, 0.0, 0.0],  [0.72, 0.85, 1.0]),
+            ([0.38, 0.0, 0.35], [0.62, 0.15, 0.65]),
+            ([0.38, 0.55, 0.35],[0.62, 0.85, 0.65]),
+        ]
+        for lo, hi in corridor_boxes:
+            faces = _box_faces(lo, hi)
+            poly = Poly3DCollection(faces, alpha=0.55,
+                                    facecolor='#666666', edgecolor='#333333', linewidth=0.4)
+            ax.add_collection3d(poly)
 
     elif env_name == '3D Wall & Gaps':
         # Wall slab
@@ -726,6 +812,15 @@ def run(cfg: dict):
                         if path:
                             _save_image_3d(f'{env_name}_{planner_name}',
                                            planner, path)
+                        comparison_records.append({
+                            'planner_name': planner_name,
+                            'tree_edges': [(v.parent.x.copy(), v.x.copy())
+                                           for v in planner.vertices if v.parent],
+                            'vertex_pts': np.array([v.x for v in planner.vertices]),
+                            'path': np.array(path) if path else None,
+                            'cost': cost,
+                            'time': elapsed,
+                        })
 
                 del planner
 
@@ -735,6 +830,10 @@ def run(cfg: dict):
         # Save comparison figure for 2D environments
         if save_image and dim_tag.startswith('2d') and comparison_records:
             _save_comparison_figure_2d(env_name, comparison_records, xs, xg, bounds)
+
+        # Save comparison figure for 3D environments
+        if save_image and dim_tag == '3d' and comparison_records:
+            _save_comparison_figure_3d(env_name, comparison_records, xs, xg, bounds)
 
         # Save GIF once per environment (uses first planner / default RIT*)
         if save_gif:
@@ -779,7 +878,14 @@ def run_mc(cfg: dict):
     print(f'  MC batch size: {cfg["mc_batch_size"]}')
     print(f'  MC base seed:  {cfg["mc_base_seed"]}')
     print(f'  MC visualize:  {cfg["mc_visualize"]}')
+    print(f'  Environments:  {cfg["environments"]}')
     print('=' * 60)
+
+    # Build env dict from configured environments
+    mc_envs = {}
+    for env_name in cfg['environments']:
+        env_fn, _ = ENV_REGISTRY[env_name]
+        mc_envs[env_name] = env_fn
 
     run_full_comparison(
         n_trials=cfg['mc_n_trials'],
@@ -787,6 +893,7 @@ def run_mc(cfg: dict):
         batch_size=cfg['mc_batch_size'],
         base_seed=cfg['mc_base_seed'],
         visualize=cfg['mc_visualize'],
+        environments=mc_envs,
     )
     print('\nMonte Carlo comparison done.')
 
@@ -795,7 +902,7 @@ def run_benchmark(cfg: dict):
     """Run AIT*/EIT*-style anytime benchmark plots."""
     from run_benchmark_plots import (
         _collect_data, plot_benchmark, plot_combined,
-        generate_table_ii, generate_table_iii,
+        generate_table_ii, generate_table_iii, generate_table_aggregated,
     )
     from visualization_util.output_paths import PLOTS_DIR
 
@@ -833,13 +940,14 @@ def run_benchmark(cfg: dict):
         if len(all_results) > 1:
             plot_combined(all_results, planners, PLOTS_DIR)
 
-    # Generate benchmark tables (Table II / III style)
+    # Generate benchmark tables (Table II / III style + aggregated)
     if cfg['generate_benchmark_tables']:
         print('\nGenerating benchmark tables...')
         generate_table_ii(all_results, planners, PLOTS_DIR,
                           n_trials=cfg['bench_n_trials'])
         generate_table_iii(all_results, planners, PLOTS_DIR,
                            n_trials=cfg['bench_n_trials'])
+        generate_table_aggregated(all_results, planners, PLOTS_DIR)
 
     print('\nBenchmark plots done.')
 
