@@ -16,7 +16,7 @@ import pybullet as p
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from manipulator_env.pybullet_env import UR10eRobotiqEnv
-from run_real_setup_test import (
+from UR10_pick_shelf import (
     ROBOT_BASE_Z, SHELF_X, SHELF_Y, SHELF_Z, SHELF_H, SHELF_T,
     build_shelf_obstacles, add_scenery,
 )

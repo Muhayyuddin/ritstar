@@ -50,15 +50,15 @@ SHELF_Y = SHELF_REL_Y
 SHELF_Z = ROBOT_BASE_Z + SHELF_REL_Z            # ≈ 0.75400 m
 
 # Shelf external dimensions (metres)
-SHELF_W = 0.32       # width
+SHELF_W = 0.30       # width  (updated per annotated measurement image)
 SHELF_D = 0.24       # depth  (open face toward robot)
-SHELF_H = 0.54       # height
+SHELF_H = 0.60       # height (updated per annotated measurement image)
 SHELF_T = 0.02       # panel / wall thickness
 
 # Table dimensions
 TABLE_LEN = 1.00     # x extent
 TABLE_WID = 1.50     # y extent
-TABLE_THK = 0.05     # tabletop thickness
+TABLE_THK = 0.054     # tabletop thickness
 
 # Colours
 CLR_TABLE  = [0.60, 0.60, 0.60, 1.0]

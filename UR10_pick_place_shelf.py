@@ -23,7 +23,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from manipulator_env.pybullet_env import UR10eRobotiqEnv
 from manipulator_env.planner_interface import plan_and_execute, interpolate_path
 from rit_star.metric import DiagonalAnisotropicMetric
-from run_real_setup_test import compute_side_grasp_ik as _compute_phase1_goal_ik
+from UR10_pick_shelf import compute_side_grasp_ik as _compute_phase1_goal_ik
 
 # Fast inertia-based diagonal metric (no PyBullet calls per evaluation)
 _UR10E_INERTIAS = np.array([7.778, 12.93, 3.87, 1.96, 1.96, 0.202])
@@ -45,10 +45,10 @@ SHELF_X = SHELF_REL_X
 SHELF_Y = SHELF_REL_Y
 SHELF_Z = ROBOT_BASE_Z + SHELF_REL_Z  # ≈ 0.75400
 
-SHELF_W = 0.32
-SHELF_D = 0.24
-SHELF_H = 0.54
-SHELF_T = 0.02
+SHELF_W = 0.30       # width  (updated per annotated measurement image)
+SHELF_D = 0.24       # depth  (open face toward robot)
+SHELF_H = 0.60       # height (updated per annotated measurement image)
+SHELF_T = 0.02       # panel / wall thickness
 
 TABLE_LEN = 1.00
 TABLE_WID = 1.50

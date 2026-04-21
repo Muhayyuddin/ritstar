@@ -44,7 +44,7 @@ ROBOT_BASE_Z    = TABLE_SURFACE_Z + SLAB_THICKNESS  # 0.76990
 
 TABLE_LEN = 1.00
 TABLE_WID = 1.50
-TABLE_THK = 0.05
+TABLE_THK = 0.054
 TABLE_CX  = -0.29
 TABLE_CY  = -0.07
 
@@ -57,7 +57,7 @@ WALL_H     = 0.50    # height above table surface (50 cm)
 WALL_Z_BOT = ROBOT_BASE_Z          # base of wall = table surface
 WALL_Z_MID = WALL_Z_BOT + WALL_H / 2
 
-CLR_WALL  = [0.35, 0.45, 0.60, 0.85]
+CLR_WALL  = [0.78, 0.64, 0.46, 0.85]  # kraft / Amazon-box tan (slightly transparent)
 CLR_TABLE = [0.60, 0.60, 0.60, 1.0]
 CLR_LEGS  = [0.25, 0.25, 0.28, 1.0]
 CLR_SLAB  = [0.35, 0.35, 0.40, 1.0]

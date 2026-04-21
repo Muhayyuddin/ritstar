@@ -308,6 +308,13 @@ def load_config(path: str) -> dict:
         'mc_batch_size': int(cfg.get('mc_batch_size', 100)),
         'mc_base_seed': int(cfg.get('mc_base_seed', 42)),
         'mc_visualize': bool(cfg.get('mc_visualize', True)),
+        # Ablation study (paper Table \ref{tab:ablation})
+        'run_ablation': bool(cfg.get('run_ablation', False)),
+        'ablation_n_trials': int(cfg.get('ablation_n_trials', 10)),
+        'ablation_max_iterations': int(cfg.get('ablation_max_iterations', 150)),
+        'ablation_batch_size': int(cfg.get('ablation_batch_size', 100)),
+        'ablation_base_seed': int(cfg.get('ablation_base_seed', 42)),
+        'ablation_envs': cfg.get('ablation_envs') or None,
     }
 
 
@@ -709,18 +716,33 @@ def _save_image_3d(env_name, planner, path):
 
 
 def _save_gif(env_name, env_fn, dim_tag):
-    """Save a tree-growth GIF for a 2D or 3D environment."""
+    """Save a tree-growth GIF for a 2D or 3D environment.
+
+    For 2D envs, additionally produce a CARM-aware GIF where the gradient
+    field updates as RIT* grows the tree, plus a final summary PNG showing
+    scene + tree + path + final gradient.
+    """
     safe = env_name.lower().replace(' ', '_')
     if dim_tag.startswith('2d'):
-        from visualization_util.visualize_riemannian import animate_tree_growth
+        from visualization_util.visualize_riemannian import (
+            animate_tree_growth, animate_tree_growth_carm,
+        )
         animate_tree_growth(env_name, env_fn, f'config_{safe}',
                             max_iterations=80, batch_size=100,
                             frame_every=2, fps=8)
+        animate_tree_growth_carm(env_name, env_fn, f'config_{safe}',
+                                 max_iterations=80, batch_size=100,
+                                 frame_every=2, fps=8)
     elif dim_tag == '3d':
-        from visualization_util.visualize_riemannian import animate_3d_env
+        from visualization_util.visualize_riemannian import (
+            animate_3d_env, animate_3d_env_carm,
+        )
         animate_3d_env(env_name, env_fn, f'config_{safe}',
                        max_iterations=80, batch_size=100,
                        frame_every=2, fps=8)
+        animate_3d_env_carm(env_name, env_fn, f'config_{safe}',
+                            max_iterations=80, batch_size=100,
+                            frame_every=2, fps=8)
     else:
         print(f'        GIF generation not supported for {dim_tag.upper()} environments.')
         return
@@ -766,6 +788,7 @@ def run(cfg: dict):
         env_results = {}
         comparison_records = []  # accumulate per-planner data for comparison figure
 
+        gif_saved = False
         for planner_name in planners:
             print(f'\n    Planner: {planner_name}')
             trial_results = []
@@ -827,6 +850,16 @@ def run(cfg: dict):
             gc.collect()
             env_results[planner_name] = trial_results
 
+            # Save tree-growth GIF immediately after RIT*'s trials complete
+            # (so the user sees artefacts even if the run is interrupted
+            # before every planner finishes).
+            if save_gif and not gif_saved and 'RIT' in planner_name.upper():
+                try:
+                    _save_gif(env_name, env_fn, dim_tag)
+                except Exception as exc:
+                    print(f'        [WARN] GIF save failed: {exc}')
+                gif_saved = True
+
         # Save comparison figure for 2D environments
         if save_image and dim_tag.startswith('2d') and comparison_records:
             _save_comparison_figure_2d(env_name, comparison_records, xs, xg, bounds)
@@ -835,9 +868,12 @@ def run(cfg: dict):
         if save_image and dim_tag == '3d' and comparison_records:
             _save_comparison_figure_3d(env_name, comparison_records, xs, xg, bounds)
 
-        # Save GIF once per environment (uses first planner / default RIT*)
-        if save_gif:
-            _save_gif(env_name, env_fn, dim_tag)
+        # Fallback: save GIF at end of env if RIT* wasn't in the planner list
+        if save_gif and not gif_saved:
+            try:
+                _save_gif(env_name, env_fn, dim_tag)
+            except Exception as exc:
+                print(f'        [WARN] GIF save failed: {exc}')
 
         all_results[env_name] = env_results
 
@@ -980,3 +1016,7 @@ if __name__ == '__main__':
 
     if cfg.get('run_mc', False):
         run_mc(cfg)
+
+    if cfg.get('run_ablation', False):
+        from run_ablation import run_ablation
+        run_ablation(cfg)

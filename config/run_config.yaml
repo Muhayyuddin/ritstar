@@ -52,8 +52,10 @@
 #planners: all
 #environments: [2D]
 
-planners:      ['RIT*', 'Informed RRT*', 'BIT*', 'AIT*', 'EIT*', 'APT*']
-environments:  ['random_world','dividing_wall']
+planners:      ['RIT*']
+#, 'Informed RRT*', 'BIT*', 'AIT*', 'EIT*', 'APT*']
+environments:  ['3D Diagonal','3D Box Field']
+
 #['random_world','dividing_wall']
 #environments:  ['random_world','dividing_wall','2D Diagonal', '2D Obstacle', '2D Narrow', '2D Maze', '2D Bug Trap', '2D Forest', '2D Terrain', '2D Hyper-Dense', '2D Joint Arm']
 
@@ -95,3 +97,44 @@ mc_max_iterations: 150
 mc_batch_size: 100
 mc_base_seed: 42
 mc_visualize: true
+
+# ── Ablation study (paper Table tab:ablation) ─────────────────────────
+# run_ablation : run RIT* vs (w/o Riem. samp. / cascading / CARM / smoothing)
+#                across the four paper ablation envs and emit
+#                  results/ablation.csv
+#                  results/ablation_summary.csv
+#                  results/ablation_table.tex   (paste-ready LaTeX)
+# ablation_envs: list of env names (from ENV_REGISTRY). Default covers the
+#                paper table: [2D Maze, 3D Spheres, 6D Shelf, 6D Cluttered].
+run_ablation: false
+ablation_n_trials: 10
+ablation_max_iterations: 150
+ablation_batch_size: 100
+ablation_base_seed: 42
+# ablation_envs: ['2D Maze', '3D Spheres', '6D Shelf', '6D Cluttered']
+
+# ── 6-D PyBullet demos (UR10e + Robotiq scenes, GUI-only) ─────────────
+# Each entry launches the corresponding script as a sub-process. The
+# script opens a PyBullet GUI, plans a path, animates it on loop. Close
+# the window (or Ctrl+C) to advance to the next demo. Uncomment the ones
+# you want to run — in listed order.
+#
+# Available 6-D demos:
+#   UR10_grasp_can        : top-down grasp of a tomato-soup can next to
+#                           a kraft-box wall obstacle.
+#   UR10_pick_place_can   : pick the can on one side of the wall and
+#                           place it on the other (over-wall demo).
+#   UR10_pick_shelf       : side-grasp a mustard bottle from the upper
+#                           compartment of a 2-shelf rack.
+#   UR10_pick_place_shelf : starting from a grasped bottle (Phase 2),
+#                           place it on top of the shelf.
+#   test_env              : replicate the shelf world and hold the arm
+#                           at a fixed joint config (no planning).
+run_pybullet_demos: false
+pybullet_demos: []
+# pybullet_demos:
+#   - UR10_grasp_can
+#   - UR10_pick_place_can
+#   - UR10_pick_shelf
+#   - UR10_pick_place_shelf
+#   - test_env

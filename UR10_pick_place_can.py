@@ -53,7 +53,7 @@ WALL_H     = 0.50
 WALL_Z_BOT = ROBOT_BASE_Z
 WALL_Z_MID = WALL_Z_BOT + WALL_H / 2
 
-CLR_WALL  = [0.35, 0.45, 0.60, 0.85]
+CLR_WALL  = [0.78, 0.64, 0.46, 0.85]  # kraft / Amazon-box tan (slightly transparent)
 CLR_TABLE = [0.60, 0.60, 0.60, 1.0]
 CLR_LEGS  = [0.25, 0.25, 0.28, 1.0]
 CLR_SLAB  = [0.35, 0.35, 0.40, 1.0]

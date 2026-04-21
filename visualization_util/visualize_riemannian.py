@@ -298,9 +298,11 @@ def draw_obstacles_2d(ax, env_name, bounds=None):
             w, h = x1 - x0, y1 - y0
             ax.add_patch(Rectangle((x0, y0), w, h, fc='#333333', ec='white', lw=1.5, ls='--', alpha=0.8))
     elif obs['type'] == 'terrain_peaks':
+        # These are cost peaks, not hard obstacles — draw just a dotted
+        # outline so they don't look like walls the tree is violating.
         for cx, cy in obs['data']:
-            ax.add_patch(Circle([cx, cy], 0.09, fc='#FFB74D', ec='#E65100',
-                                lw=1.2, ls='--', alpha=0.4, zorder=2))
+            ax.add_patch(Circle([cx, cy], 0.09, fc='none', ec='#E65100',
+                                lw=1.0, ls=':', alpha=0.5, zorder=2))
 
 
 def plot_3d_surface(env_name, env_fn, save_prefix):
@@ -606,6 +608,176 @@ def animate_tree_growth(env_name, env_fn, save_prefix,
     return fname
 
 
+def animate_tree_growth_carm(env_name, env_fn, save_prefix,
+                             max_iterations=80, batch_size=100,
+                             frame_every=2, fps=8, res=100,
+                             carm_sigma=0.1, carm_alpha=5.0,
+                             carm_rebuild_interval=5):
+    """2-D tree-growth GIF with a LIVE CARM gradient that updates per frame.
+
+    Identical to :func:`animate_tree_growth`, but enables RIT*'s
+    Collision-Adaptive Riemannian Metric (CARM). At each captured snapshot,
+    the metric field is recomputed from the *current* CARM state and the
+    heat-map background is redrawn, so the viewer sees the gradient adapt
+    around collision regions as the tree grows.
+
+    Also saves a final PNG with scene + tree + path + final gradient.
+    """
+    coll, _, base_metric, xs, xg, bounds = env_fn()
+    extent = [bounds[0][0], bounds[0][1], bounds[1][0], bounds[1][1]]
+
+    planner = RITStar(xs, xg, bounds, coll, base_metric,
+                      geodesic_tier='diagonal', batch_size=batch_size,
+                      max_iterations=max_iterations, random_seed=42,
+                      adaptive_metric=True,
+                      carm_sigma=carm_sigma, carm_alpha=carm_alpha,
+                      carm_rebuild_interval=carm_rebuild_interval)
+    live_metric = planner.metric  # CARM instance — its G(x) changes over time
+
+    # Precompute a grid of query points — we'll evaluate just the CARM
+    # conformal scale s(x) on it each frame (not the full composite metric).
+    gx = np.linspace(bounds[0][0], bounds[0][1], res)
+    gy = np.linspace(bounds[1][0], bounds[1][1], res)
+    GX, GY = np.meshgrid(gx, gy)
+    grid_pts = np.column_stack([GX.ravel(), GY.ravel()])
+
+    def _carm_scale_field():
+        """Return the CARM-only scale factor s(x) as (res, res) array.
+
+        Uses the vectorized batch interface when available. Regions with
+        no nearby collision samples stay at s=1 (light in hot_r cmap).
+        """
+        if hasattr(live_metric, '_collision_scale_batch'):
+            s = live_metric._collision_scale_batch(grid_pts)
+        else:
+            s = np.array([live_metric._collision_scale(p) for p in grid_pts])
+        return s.reshape(res, res)
+
+    snapshots = []
+    for state in planner.plan_stepwise():
+        if state['iteration'] % frame_every == 0 or state['iteration'] == max_iterations - 1:
+            state = dict(state)
+            state['metric_field'] = _carm_scale_field()
+            snapshots.append(state)
+
+    if not snapshots:
+        print(f'  No snapshots collected for {env_name}')
+        return
+
+    print(f'  Collected {len(snapshots)} CARM frames for {env_name}')
+
+    x_range = bounds[0][1] - bounds[0][0]
+    y_range = bounds[1][1] - bounds[1][0]
+    base_size = 7
+    if x_range >= y_range:
+        fig_w, fig_h = base_size, base_size * (y_range / x_range)
+    else:
+        fig_h, fig_w = base_size, base_size * (x_range / y_range)
+    fig, ax = plt.subplots(figsize=(fig_w, fig_h))
+
+    S0 = snapshots[0]['metric_field']
+    # CARM scale is always ≥ 1 (s=1 means "no CARM inflation"). Anchor vmin
+    # at 1.0 so untouched / sparse-sample regions render as light.
+    vmin = 1.0
+    vmax = max(max(s['metric_field'].max() for s in snapshots), 1.01)
+    img = ax.imshow(S0, origin='lower', extent=extent, cmap='hot_r',
+                    aspect='equal', vmin=vmin, vmax=vmax)
+    draw_obstacles_2d(ax, env_name, bounds=bounds)
+    ax.plot(*xs, 'go', ms=12, zorder=10)
+    ax.plot(*xg, 'r^', ms=12, zorder=10)
+    ax.set_xlim(bounds[0])
+    ax.set_ylim(bounds[1])
+    ax.autoscale(False)
+    ax.set_xlabel('x₁', fontsize=14)
+    ax.set_ylabel('x₂', fontsize=14)
+    ax.tick_params(axis='both', labelsize=12)
+
+    edge_collection = LineCollection([], colors='#4FC3F7', linewidths=0.5,
+                                     alpha=0.6, zorder=2)
+    ax.add_collection(edge_collection)
+    path_line, = ax.plot([], [], '#00FF00', lw=3.5, zorder=5)
+    vertex_scatter = ax.scatter([], [], c='#90CAF9', s=4, zorder=3, alpha=0.7)
+    title = ax.set_title('', fontsize=14)
+    fig.tight_layout(pad=0.5)
+
+    def update(frame_idx):
+        snap = snapshots[frame_idx]
+        img.set_data(snap['metric_field'])
+
+        if snap['edges']:
+            segments = [[(p[0], p[1]), (ch[0], ch[1])]
+                        for p, ch in snap['edges']]
+            edge_collection.set_segments(segments)
+        else:
+            edge_collection.set_segments([])
+        if snap['vertices']:
+            verts = np.array(snap['vertices'])
+            vertex_scatter.set_offsets(verts[:, :2])
+        else:
+            vertex_scatter.set_offsets(np.empty((0, 2)))
+        path = snap['path']
+        if path and len(path) > 1:
+            pp = np.array(path)
+            path_line.set_data(pp[:, 0], pp[:, 1])
+        else:
+            path_line.set_data([], [])
+
+        c = snap['c_best']
+        cost_str = f'{c:.3f}' if np.isfinite(c) else '∞'
+        n_verts = len(snap['vertices'])
+        carm_max = snap['metric_field'].max()
+        title.set_text(f'{env_name} — RIT* + CARM (showing learned s(x))\n'
+                       f'Iter {snap["iteration"]+1}/{max_iterations}  |  '
+                       f'Vertices: {n_verts}  |  Cost: {cost_str}  |  '
+                       f'max s(x)={carm_max:.2f}')
+        return img, edge_collection, vertex_scatter, path_line, title
+
+    anim = FuncAnimation(fig, update, frames=len(snapshots),
+                         interval=1000 // fps, blit=False)
+    gif_path = os.path.join(GIFS_DIR, f'{save_prefix}_tree_growth_carm.gif')
+    anim.save(gif_path, writer=PillowWriter(fps=fps))
+    plt.close(fig)
+    print(f'  → saved {gif_path}')
+
+    # Final summary PNG: scene + tree + path + final CARM gradient
+    final = snapshots[-1]
+    fig2, ax2 = plt.subplots(figsize=(fig_w, fig_h))
+    im2 = ax2.imshow(final['metric_field'], origin='lower', extent=extent,
+                     cmap='hot_r', aspect='equal', vmin=vmin, vmax=vmax)
+    draw_obstacles_2d(ax2, env_name, bounds=bounds)
+    if final['edges']:
+        segs = [[(p[0], p[1]), (ch[0], ch[1])] for p, ch in final['edges']]
+        ax2.add_collection(LineCollection(segs, colors='#4FC3F7',
+                                          linewidths=0.6, alpha=0.7, zorder=2))
+    if final['vertices']:
+        verts = np.array(final['vertices'])
+        ax2.scatter(verts[:, 0], verts[:, 1], c='#90CAF9', s=6, alpha=0.8, zorder=3)
+    if final['path'] and len(final['path']) > 1:
+        pp = np.array(final['path'])
+        ax2.plot(pp[:, 0], pp[:, 1], '#00FF00', lw=3.5, zorder=5)
+    ax2.plot(*xs, 'go', ms=12, zorder=10)
+    ax2.plot(*xg, 'r^', ms=12, zorder=10)
+    ax2.set_xlim(bounds[0]); ax2.set_ylim(bounds[1]); ax2.autoscale(False)
+    ax2.set_xlabel('x₁', fontsize=14); ax2.set_ylabel('x₂', fontsize=14)
+    c = final['c_best']
+    cost_str = f'{c:.3f}' if np.isfinite(c) else '∞'
+    ax2.set_title(f'{env_name} — Final CARM s(x) + RIT* tree + path\n'
+                  f'Vertices: {len(final["vertices"])}  |  Cost: {cost_str}  '
+                  f'|  max s(x)={final["metric_field"].max():.2f}',
+                  fontsize=13)
+    cbar = fig2.colorbar(im2, ax=ax2, shrink=0.85, pad=0.02)
+    cbar.set_label('CARM scale s(x)  (1 = no inflation)', fontsize=11)
+    fig2.tight_layout(pad=0.5)
+    png_path = os.path.join(IMAGES_DIR, f'{save_prefix}_tree_carm_final.png')
+    fig2.savefig(png_path, dpi=160, bbox_inches='tight')
+    plt.close(fig2)
+    print(f'  → saved {png_path}')
+
+    del anim, fig, fig2, snapshots, planner
+    gc.collect()
+    return gif_path, png_path
+
+
 def animate_3d_surface_tree(env_name, env_fn, save_prefix,
                             max_iterations=80, batch_size=100,
                             frame_every=2, fps=8, res=80):
@@ -718,64 +890,48 @@ def animate_3d_surface_tree(env_name, env_fn, save_prefix,
 # 3-D environment animation (true 3D C-space)
 # ═══════════════════════════════════════════════════════════════════════
 
-def _draw_obstacles_3d_anim(ax, env_name):
-    """Draw 3D obstacles onto an Axes3D for animation frames."""
-    if env_name == '3D Diagonal':
-        boxes = [
-            ([0.25, 0.0, 0.0], [0.35, 0.6, 1.0]),
-            ([0.45, 0.4, 0.0], [0.55, 1.0, 1.0]),
-            ([0.65, 0.0, 0.0], [0.75, 0.6, 0.6]),
-            ([0.65, 0.0, 0.7], [0.75, 0.6, 1.0]),
-        ]
-        for lo, hi in boxes:
-            lo, hi = np.array(lo), np.array(hi)
-            for s, e in [
-                ([lo[0],lo[1],lo[2]], [hi[0],lo[1],lo[2]]),
-                ([lo[0],hi[1],lo[2]], [hi[0],hi[1],lo[2]]),
-                ([lo[0],lo[1],hi[2]], [hi[0],lo[1],hi[2]]),
-                ([lo[0],hi[1],hi[2]], [hi[0],hi[1],hi[2]]),
-                ([lo[0],lo[1],lo[2]], [lo[0],hi[1],lo[2]]),
-                ([hi[0],lo[1],lo[2]], [hi[0],hi[1],lo[2]]),
-                ([lo[0],lo[1],hi[2]], [lo[0],hi[1],hi[2]]),
-                ([hi[0],lo[1],hi[2]], [hi[0],hi[1],hi[2]]),
-                ([lo[0],lo[1],lo[2]], [lo[0],lo[1],hi[2]]),
-                ([hi[0],lo[1],lo[2]], [hi[0],lo[1],hi[2]]),
-                ([lo[0],hi[1],lo[2]], [lo[0],hi[1],hi[2]]),
-                ([hi[0],hi[1],lo[2]], [hi[0],hi[1],hi[2]]),
-            ]:
-                ax.plot([s[0],e[0]], [s[1],e[1]], [s[2],e[2]],
-                        color='#3a3a3a', alpha=0.7, linewidth=0.8)
-    elif env_name == '3D Spheres':
-        offsets = [-0.35, 0.35]
-        centres = [[x, y, z]
-                    for x in offsets for y in offsets for z in offsets]
-        centres.append([0.0, 0.0, 0.0])
-        r = 0.22
-        u = np.linspace(0, 2 * np.pi, 12)
-        v = np.linspace(0, np.pi, 8)
-        for c in centres:
-            xs_ = c[0] + r * np.outer(np.cos(u), np.sin(v))
-            ys_ = c[1] + r * np.outer(np.sin(u), np.sin(v))
-            zs_ = c[2] + r * np.outer(np.ones_like(u), np.cos(v))
-            ax.plot_wireframe(xs_, ys_, zs_, color='#3a3a3a',
-                              alpha=0.25, linewidth=0.3)
-    elif env_name == '3D Dense Lab':
-        centres = [
-            [-0.5, -0.5, -0.5], [0.2, -0.6, -0.3], [0.6, -0.4, -0.6],
-            [-0.3, 0.0, 0.0], [0.3, 0.1, 0.1], [0.0, 0.5, 0.0],
-            [-0.6, 0.3, 0.2], [0.6, 0.3, -0.1], [-0.4, 0.6, 0.5],
-            [0.2, 0.7, 0.4], [0.5, 0.5, 0.6], [-0.1, -0.2, 0.6],
-            [0.0, 0.0, 0.5], [-0.6, -0.3, 0.3], [0.5, -0.1, 0.4],
-        ]
-        r = 0.18
-        u = np.linspace(0, 2 * np.pi, 14)
-        v = np.linspace(0, np.pi, 10)
-        for c in centres:
-            xs_ = c[0] + r * np.outer(np.cos(u), np.sin(v))
-            ys_ = c[1] + r * np.outer(np.sin(u), np.sin(v))
-            zs_ = c[2] + r * np.outer(np.ones_like(u), np.cos(v))
-            ax.plot_surface(xs_, ys_, zs_, color='#555555',
-                            alpha=0.65, shade=True, linewidth=0)
+_BLOCKED_PTS_CACHE = {}
+
+
+def _probe_blocked_points(coll, bounds, res=22):
+    """Voxel-probe the 3-D collision checker and return blocked cells.
+
+    Works for any 3-D environment without hard-coding obstacle geometry.
+    Results cached by id(coll) + bounds to avoid reprobing per frame.
+    """
+    key = (id(coll), tuple(tuple(b) for b in bounds), res)
+    if key in _BLOCKED_PTS_CACHE:
+        return _BLOCKED_PTS_CACHE[key]
+    xs_ = np.linspace(bounds[0][0], bounds[0][1], res)
+    ys_ = np.linspace(bounds[1][0], bounds[1][1], res)
+    zs_ = np.linspace(bounds[2][0], bounds[2][1], res)
+    blocked = []
+    for x_ in xs_:
+        for y_ in ys_:
+            for z_ in zs_:
+                pt = np.array([x_, y_, z_])
+                if not coll(pt):
+                    blocked.append((x_, y_, z_))
+    arr = np.asarray(blocked) if blocked else np.empty((0, 3))
+    _BLOCKED_PTS_CACHE[key] = arr
+    return arr
+
+
+def _draw_obstacles_3d_anim(ax, env_name, coll=None, bounds=None, res=22):
+    """Draw 3D obstacles onto an Axes3D using the env's own collision checker.
+
+    The collision checker is probed on a voxel grid; blocked cells are
+    scattered as dark translucent squares. Generic — works for all 3-D
+    envs (boxes, spheres, walls with holes, etc.).
+    """
+    if coll is None or bounds is None or len(bounds) != 3:
+        return
+    pts = _probe_blocked_points(coll, bounds, res=res)
+    if pts.size == 0:
+        return
+    ax.scatter(pts[:, 0], pts[:, 1], pts[:, 2],
+               c='#2a2a2a', s=24, alpha=0.25, marker='s',
+               depthshade=False, zorder=1)
 
 
 def animate_3d_env(env_name, env_fn, save_prefix,
@@ -816,12 +972,30 @@ def animate_3d_env(env_name, env_fn, save_prefix,
     fig = plt.figure(figsize=(10, 8))
     ax = fig.add_subplot(111, projection='3d')
 
+    # Prefer the rich solid-obstacle renderer used by the static PNGs
+    # (matches config_<env>_rit_tree.png). Falls back to the voxel-probe
+    # version for environments that aren't hand-coded there.
+    try:
+        from run_from_config import _draw_obstacles_3d_static
+    except Exception:
+        _draw_obstacles_3d_static = None
+
+    _HANDCODED_3D = {
+        '3D Diagonal', '3D Spheres', '3D Dense Lab', '3D Gauntlet',
+        '3D Narrow', '3D Corridor', '3D Wall & Gaps', '3D Box Field',
+    }
+
     def draw_frame(frame_idx):
         ax.cla()
         snap = snapshots[frame_idx]
 
-        # Draw obstacles
-        _draw_obstacles_3d_anim(ax, env_name)
+        # Draw obstacles — use the rich static renderer when we have one
+        # hand-coded for this env, otherwise voxel-probe the collision
+        # checker so at least something shows up.
+        if _draw_obstacles_3d_static is not None and env_name in _HANDCODED_3D:
+            _draw_obstacles_3d_static(ax, env_name)
+        else:
+            _draw_obstacles_3d_anim(ax, env_name, coll=coll, bounds=bounds)
 
         # Start and goal
         ax.scatter([xs[0]], [xs[1]], [xs[2]], c='green', s=100, marker='o',
@@ -875,6 +1049,201 @@ def animate_3d_env(env_name, env_fn, save_prefix,
     gc.collect()
     print(f'  → saved {fname}')
     return fname
+
+
+def animate_3d_env_carm(env_name, env_fn, save_prefix,
+                        max_iterations=80, batch_size=100,
+                        frame_every=2, fps=8,
+                        carm_sigma=0.15, carm_alpha=5.0,
+                        carm_rebuild_interval=5,
+                        grid_res=14, s_threshold=1.10):
+    """3-D tree-growth GIF with a LIVE CARM gradient cloud.
+
+    Same as :func:`animate_3d_env` but enables CARM; at each frame a
+    coarse grid of points is coloured by the current CARM scale s(x),
+    and only points with s(x) > ``s_threshold`` are drawn (so untouched
+    regions stay empty). The cloud evolves as the tree grows and more
+    collision samples accumulate. Also saves a final summary PNG with
+    scene + tree + path + final CARM cloud.
+    """
+    coll, _, base_metric, xs, xg, bounds = env_fn()
+
+    planner = RITStar(xs, xg, bounds, coll, base_metric,
+                      geodesic_tier='diagonal', batch_size=batch_size,
+                      max_iterations=max_iterations, random_seed=42,
+                      adaptive_metric=True,
+                      carm_sigma=carm_sigma, carm_alpha=carm_alpha,
+                      carm_rebuild_interval=carm_rebuild_interval)
+    live_metric = planner.metric  # CollisionAdaptiveMetric
+
+    # Precompute a 3-D query grid (cached in memory, evaluated each frame)
+    gx = np.linspace(bounds[0][0], bounds[0][1], grid_res)
+    gy = np.linspace(bounds[1][0], bounds[1][1], grid_res)
+    gz = np.linspace(bounds[2][0], bounds[2][1], grid_res)
+    GX, GY, GZ = np.meshgrid(gx, gy, gz, indexing='ij')
+    grid_pts = np.column_stack([GX.ravel(), GY.ravel(), GZ.ravel()])
+
+    # Keep only cells inside the free space — obstacle cells would
+    # always stay at the base metric and clutter the cloud.
+    free_mask = np.array([coll(p) for p in grid_pts])
+    grid_pts = grid_pts[free_mask]
+
+    def _carm_field():
+        if hasattr(live_metric, '_collision_scale_batch'):
+            return live_metric._collision_scale_batch(grid_pts)
+        return np.array([live_metric._collision_scale(p) for p in grid_pts])
+
+    snapshots = []
+    for state in planner.plan_stepwise():
+        if state['iteration'] % frame_every == 0 or state['iteration'] == max_iterations - 1:
+            state = dict(state)
+            state['s_field'] = _carm_field()
+            snapshots.append(state)
+
+    if not snapshots:
+        print(f'  No snapshots collected for {env_name}')
+        return
+
+    print(f'  Collected {len(snapshots)} CARM frames for {env_name}')
+
+    x_lim = (bounds[0][0], bounds[0][1])
+    y_lim = (bounds[1][0], bounds[1][1])
+    z_lim = (bounds[2][0], bounds[2][1])
+
+    fig = plt.figure(figsize=(10, 8))
+    ax = fig.add_subplot(111, projection='3d')
+
+    try:
+        from run_from_config import _draw_obstacles_3d_static
+    except Exception:
+        _draw_obstacles_3d_static = None
+
+    _HANDCODED_3D = {
+        '3D Diagonal', '3D Spheres', '3D Dense Lab', '3D Gauntlet',
+        '3D Narrow', '3D Corridor', '3D Wall & Gaps', '3D Box Field',
+    }
+
+    # Global vmax for consistent colour mapping across frames
+    vmax = max(float(s['s_field'].max()) for s in snapshots)
+    vmax = max(vmax, s_threshold + 0.01)
+    norm = plt.Normalize(vmin=s_threshold, vmax=vmax)
+    cmap = cm.hot_r
+
+    def draw_frame(frame_idx):
+        ax.cla()
+        snap = snapshots[frame_idx]
+
+        if _draw_obstacles_3d_static is not None and env_name in _HANDCODED_3D:
+            _draw_obstacles_3d_static(ax, env_name)
+        else:
+            _draw_obstacles_3d_anim(ax, env_name, coll=coll, bounds=bounds)
+
+        # CARM cloud — only cells above threshold (so s≈1 regions stay empty)
+        sfield = snap['s_field']
+        mask = sfield > s_threshold
+        if mask.any():
+            pts = grid_pts[mask]
+            vals = sfield[mask]
+            ax.scatter(pts[:, 0], pts[:, 1], pts[:, 2],
+                       c=vals, cmap=cmap, norm=norm,
+                       s=18, alpha=0.55, marker='o',
+                       depthshade=False, zorder=1.5,
+                       edgecolors='none')
+
+        # Start / goal
+        ax.scatter([xs[0]], [xs[1]], [xs[2]], c='green', s=100, marker='o',
+                   depthshade=False, zorder=10)
+        ax.scatter([xg[0]], [xg[1]], [xg[2]], c='red', s=100, marker='^',
+                   depthshade=False, zorder=10)
+
+        # Tree edges
+        for p, ch in snap['edges']:
+            ax.plot([p[0], ch[0]], [p[1], ch[1]], [p[2], ch[2]],
+                    color='#4FC3F7', lw=0.4, alpha=0.5)
+
+        if snap['vertices']:
+            va = np.array(snap['vertices'])
+            ax.scatter(va[:, 0], va[:, 1], va[:, 2],
+                       s=2, c='#90CAF9', alpha=0.4)
+
+        path = snap['path']
+        if path and len(path) > 1:
+            pp = np.array(path)
+            ax.plot(pp[:, 0], pp[:, 1], pp[:, 2], '#7B2FBE',
+                    lw=3.0, zorder=8)
+
+        ax.set_xlim(*x_lim); ax.set_ylim(*y_lim); ax.set_zlim(*z_lim)
+        ax.set_xlabel('x'); ax.set_ylabel('y'); ax.set_zlabel('z')
+
+        c = snap['c_best']
+        cost_str = f'{c:.3f}' if np.isfinite(c) else '∞'
+        smax = sfield.max()
+        n_cloud = int(mask.sum())
+        ax.set_title(f'{env_name} — RIT* + CARM  (s(x) cloud)\n'
+                     f'Iter {snap["iteration"]+1}/{max_iterations}  |  '
+                     f'Verts {len(snap["vertices"])}  |  Cost {cost_str}  |  '
+                     f'max s={smax:.2f}  |  inflated cells {n_cloud}',
+                     fontsize=10)
+
+        azim = -45 + frame_idx * 1.5
+        ax.view_init(elev=25, azim=azim)
+
+    anim = FuncAnimation(fig, draw_frame, frames=len(snapshots),
+                         interval=1000 // fps, blit=False)
+    fname = os.path.join(GIFS_DIR, f'{save_prefix}_tree_growth_carm.gif')
+    anim.save(fname, writer=PillowWriter(fps=fps))
+    plt.close(fig)
+    print(f'  → saved {fname}')
+
+    # Final summary PNG
+    fig2 = plt.figure(figsize=(10, 8))
+    ax2 = fig2.add_subplot(111, projection='3d')
+    final = snapshots[-1]
+    if _draw_obstacles_3d_static is not None and env_name in _HANDCODED_3D:
+        _draw_obstacles_3d_static(ax2, env_name)
+    else:
+        _draw_obstacles_3d_anim(ax2, env_name, coll=coll, bounds=bounds)
+    sfield = final['s_field']
+    mask = sfield > s_threshold
+    if mask.any():
+        pts = grid_pts[mask]
+        sc = ax2.scatter(pts[:, 0], pts[:, 1], pts[:, 2],
+                         c=sfield[mask], cmap=cmap, norm=norm,
+                         s=22, alpha=0.6, edgecolors='none',
+                         depthshade=False, zorder=1.5)
+        cbar = fig2.colorbar(sc, ax=ax2, shrink=0.7, pad=0.08)
+        cbar.set_label('CARM scale s(x)  (1 = no inflation)', fontsize=10)
+    ax2.scatter([xs[0]], [xs[1]], [xs[2]], c='green', s=100, marker='o',
+                depthshade=False, zorder=10)
+    ax2.scatter([xg[0]], [xg[1]], [xg[2]], c='red', s=100, marker='^',
+                depthshade=False, zorder=10)
+    for p, ch in final['edges']:
+        ax2.plot([p[0], ch[0]], [p[1], ch[1]], [p[2], ch[2]],
+                 color='#4FC3F7', lw=0.5, alpha=0.6)
+    if final['vertices']:
+        va = np.array(final['vertices'])
+        ax2.scatter(va[:, 0], va[:, 1], va[:, 2],
+                    s=4, c='#90CAF9', alpha=0.5)
+    if final['path'] and len(final['path']) > 1:
+        pp = np.array(final['path'])
+        ax2.plot(pp[:, 0], pp[:, 1], pp[:, 2], '#7B2FBE',
+                 lw=3.0, zorder=8)
+    ax2.set_xlim(*x_lim); ax2.set_ylim(*y_lim); ax2.set_zlim(*z_lim)
+    ax2.set_xlabel('x'); ax2.set_ylabel('y'); ax2.set_zlabel('z')
+    c = final['c_best']
+    cost_str = f'{c:.3f}' if np.isfinite(c) else '∞'
+    ax2.set_title(f'{env_name} — Final CARM cloud + RIT* tree + path\n'
+                  f'Vertices: {len(final["vertices"])}  |  Cost: {cost_str}  '
+                  f'|  max s={sfield.max():.2f}', fontsize=11)
+    ax2.view_init(elev=25, azim=-45 + len(snapshots) * 1.5)
+    png_path = os.path.join(IMAGES_DIR, f'{save_prefix}_tree_carm_final.png')
+    fig2.savefig(png_path, dpi=160, bbox_inches='tight')
+    plt.close(fig2)
+    print(f'  → saved {png_path}')
+
+    del anim, fig, fig2, snapshots, planner
+    gc.collect()
+    return fname, png_path
 
 
 if __name__ == '__main__':

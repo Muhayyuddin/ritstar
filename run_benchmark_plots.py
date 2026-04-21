@@ -159,23 +159,34 @@ def plot_benchmark(env_name, results, planners, out_dir):
         t_min_pos = t_max * 1e-3
     t_grid = np.geomspace(t_min_pos * 0.8, t_max * 1.05, 500)
 
-    # IEEE publication style
+    # IEEE single-column publication style (renders well at ~3.5 in width).
+    # All sizes are scaled up from the previous two-column preset so the
+    # figure remains legible when placed in a single IEEE column.
     plt.rcParams.update({
         'font.family': 'serif',
-        'font.size': 10,
-        'axes.labelsize': 11,
-        'axes.titlesize': 12,
-        'legend.fontsize': 8,
-        'xtick.labelsize': 9,
-        'ytick.labelsize': 9,
+        'font.size': 12,
+        'axes.labelsize': 14,
+        'axes.titlesize': 15,
+        'legend.fontsize': 10,
+        'xtick.labelsize': 12,
+        'ytick.labelsize': 12,
+        'axes.linewidth': 1.0,
+        'xtick.major.width': 1.0,
+        'ytick.major.width': 1.0,
+        'xtick.minor.visible': True,
+        'ytick.minor.visible': False,
+        'lines.linewidth': 2.4,
+        'lines.markersize': 6,
         'figure.dpi': 300,
         'savefig.dpi': 300,
     })
 
-    fig, (ax_sr, ax_cost) = plt.subplots(2, 1, figsize=(5.5, 6),
+    # Single-column-ready aspect (~3.5 in wide). Use tight layout so fonts
+    # are clearly legible when the figure scales into the column.
+    fig, (ax_sr, ax_cost) = plt.subplots(2, 1, figsize=(4.2, 5.2),
                                           sharex=True, gridspec_kw={
-                                              'height_ratios': [1, 1.4],
-                                              'hspace': 0.08,
+                                              'height_ratios': [1, 1.5],
+                                              'hspace': 0.10,
                                           })
 
     # ── Top: Success rate ──
@@ -183,14 +194,15 @@ def plot_benchmark(env_name, results, planners, out_dir):
         sr = _success_rate_vs_time(results[pname], t_grid) * 100.0
         color = PLANNER_COLORS.get(pname, 'gray')
         ls = PLANNER_LINESTYLES.get(pname, '-')
-        ax_sr.plot(t_grid, sr, color=color, lw=1.8, ls=ls, label=pname)
+        ax_sr.plot(t_grid, sr, color=color, lw=2.4, ls=ls, label=pname)
 
-    ax_sr.set_ylabel('Success [%]')
+    ax_sr.set_ylabel('Success [%]', fontweight='bold')
     ax_sr.set_ylim(-5, 105)
     ax_sr.set_yticks([0, 25, 50, 75, 100])
     ax_sr.set_xscale('log')
-    ax_sr.grid(True, alpha=0.25)
-    ax_sr.set_title(env_name, fontweight='bold')
+    ax_sr.grid(True, which='major', alpha=0.30)
+    ax_sr.grid(True, which='minor', alpha=0.12, linestyle=':')
+    ax_sr.set_title(env_name, fontweight='bold', pad=6)
 
     # ── Bottom: Cost vs time (median + IQR) ──
     finite_mins = []
@@ -216,18 +228,19 @@ def plot_benchmark(env_name, results, planners, out_dir):
         q75_valid = q75[valid]
 
         if len(t_valid) > 0:
-            ax_cost.plot(t_valid, m_valid, color=color, lw=1.8, ls=ls,
+            ax_cost.plot(t_valid, m_valid, color=color, lw=2.4, ls=ls,
                          label=pname)
             ax_cost.fill_between(t_valid, q25_valid, q75_valid,
-                                 color=color, alpha=0.15)
+                                 color=color, alpha=0.18)
             fc = m_valid[np.isfinite(m_valid)]
             if len(fc) > 0:
                 finite_mins.append(np.nanmin(fc))
 
-    ax_cost.set_xlabel('Computation time [s]')
-    ax_cost.set_ylabel('Cost')
+    ax_cost.set_xlabel('Computation time [s]', fontweight='bold')
+    ax_cost.set_ylabel('Cost', fontweight='bold')
     ax_cost.set_xscale('log')
-    ax_cost.grid(True, alpha=0.25)
+    ax_cost.grid(True, which='major', alpha=0.30)
+    ax_cost.grid(True, which='minor', alpha=0.12, linestyle=':')
 
     # Sensible y-limits
     if finite_mins:
@@ -254,20 +267,23 @@ def plot_benchmark(env_name, results, planners, out_dir):
                 ymax = max(ymax, np.median(first_costs) * 1.05)
             ax_cost.set_ylim(ymin, ymax)
 
-    # Legend below the bottom plot
+    # Legend below the bottom plot — 2 columns, bold header, tight spacing
     handles, labels = ax_cost.get_legend_handles_labels()
     fig.legend(handles, labels, loc='lower center',
-               ncol=min(len(planners), 3), fontsize=8.5,
-               bbox_to_anchor=(0.5, -0.02),
+               ncol=min(len(planners), 3), fontsize=10,
+               bbox_to_anchor=(0.5, -0.04),
                frameon=True, fancybox=True, shadow=False,
-               edgecolor='#cccccc')
+               edgecolor='#bfbfbf', handlelength=2.0,
+               columnspacing=1.0, handletextpad=0.5)
 
-    # Save
+    fig.tight_layout(pad=0.4)
+
+    # Save (PDF for vector paper inclusion, PNG for quick preview)
     safe = env_name.lower().replace(' ', '_').replace('-', '_')
     out_path = os.path.join(out_dir, f'benchmark_{safe}.pdf')
     out_png = os.path.join(out_dir, f'benchmark_{safe}.png')
-    fig.savefig(out_path, bbox_inches='tight')
-    fig.savefig(out_png, bbox_inches='tight')
+    fig.savefig(out_path, bbox_inches='tight', pad_inches=0.05)
+    fig.savefig(out_png, bbox_inches='tight', pad_inches=0.05)
     plt.close(fig)
     print(f'  → {out_path}')
     print(f'  → {out_png}')
