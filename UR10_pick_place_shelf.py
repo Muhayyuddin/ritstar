@@ -39,7 +39,7 @@ ROBOT_BASE_Z    = TABLE_SURFACE_Z + SLAB_THICKNESS  # 0.76990
 
 SHELF_REL_X = -0.67138
 SHELF_REL_Y = -0.68403
-SHELF_REL_Z = -0.01590
+SHELF_REL_Z = 0     # slightly below robot base (shelf sits on table)
 
 SHELF_X = SHELF_REL_X
 SHELF_Y = SHELF_REL_Y
@@ -52,7 +52,7 @@ SHELF_T = 0.02       # panel / wall thickness
 
 TABLE_LEN = 1.00
 TABLE_WID = 1.50
-TABLE_THK = 0.05
+TABLE_THK = 0.054
 
 CLR_TABLE = [0.60, 0.60, 0.60, 1.0]
 CLR_SLAB  = [0.35, 0.35, 0.40, 1.0]
@@ -347,6 +347,8 @@ def compute_place_on_shelf_top_ik(env, q_seed=None):
 # ═══════════════════════════════════════════════════════════════════════
 
 def main():
+    from manipulator_env.demo_cli import parse_demo_args, append_demo_result_csv
+    _args = parse_demo_args()
     # Build shelf obstacles (includes table)
     shelf_obstacles = build_shelf_obstacles()
 
@@ -432,10 +434,11 @@ def main():
     ik_env.disconnect()
     print("[IK] Headless env disconnected.\n")
 
-    # ── Phase 2: GUI environment + planner ────────────────────────
-    print("[ENV] Loading PyBullet (GUI) ...")
+    # ── Phase 2: main environment (GUI or headless) + planner ─────
+    mode = 'headless' if _args.headless else 'GUI'
+    print(f"[ENV] Loading PyBullet ({mode}) ...")
     env = UR10eRobotiqEnv(
-        gui=True,
+        gui=not _args.headless,
         obstacles=shelf_obstacles,
         base_position=[0.0, 0.0, ROBOT_BASE_Z],
         base_orientation=p.getQuaternionFromEuler([0, 0, np.pi]),
@@ -563,19 +566,37 @@ def main():
     print("=" * 62)
     print()
 
-    # Run RIT* planner
+    # Run chosen planner
     fast_metric = DiagonalAnisotropicMetric(weights=_UR10E_WEIGHTS)
+    import time as _time
+    _t0 = _time.time()
     path, cost = plan_and_execute(
         env,
         q_start,
         q_goal,
         metric=fast_metric,
-        batch_size=200,
-        max_iterations=300,
+        batch_size=_args.batch_size,
+        max_iterations=_args.max_iterations,
         smooth=True,
         animate=False,
         animate_delay=0.02,
+        planner_name=_args.planner,
+        seed=_args.seed,
     )
+    _elapsed = _time.time() - _t0
+
+    if _args.save_results:
+        append_demo_result_csv({
+            'demo': 'UR10_pick_place_shelf',
+            'planner': _args.planner,
+            'seed': _args.seed,
+            'max_iterations': _args.max_iterations,
+            'batch_size': _args.batch_size,
+            'final_cost': float(cost) if np.isfinite(cost) else float('inf'),
+            'waypoints': len(path) if path else 0,
+            'time_s': float(_elapsed),
+            'success': bool(path),
+        })
 
     if path:
         print(f"\n[RESULT] Path found — cost: {cost:.4f}, waypoints: {len(path)}")
@@ -583,7 +604,7 @@ def main():
         os.makedirs("results", exist_ok=True)
 
         # Save world state
-        with open("results/real_setup_2_world_state.txt", "w") as f:
+        with open("results/UR10_pick_place_shelf_world_state.txt", "w") as f:
             f.write("=" * 62 + "\n")
             f.write("  Real Setup 2 — Place Bottle on Shelf Top (World State)\n")
             f.write("=" * 62 + "\n\n")
@@ -623,10 +644,10 @@ def main():
             f.write(f"  Waypoints     : {len(path)}\n")
             f.write(f"  Bottle collision : ENABLED (attached body)\n")
 
-        print("[FILE] Saved results/real_setup_2_world_state.txt")
+        print("[FILE] Saved results/UR10_pick_place_shelf_world_state.txt")
 
         # Save path
-        with open("results/real_setup_2_path.txt", "w") as f:
+        with open("results/UR10_pick_place_shelf_path.txt", "w") as f:
             f.write("=" * 62 + "\n")
             f.write("  Real Setup 2 — Complete Path (Joint Configurations)\n")
             f.write("=" * 62 + "\n")
@@ -641,13 +662,32 @@ def main():
                 f.write(f"  {i:4d}  " + "  ".join(f"{v:+10.6f}" for v in q) + "\n")
             f.write("-" * 62 + "\n")
 
-        print("[FILE] Saved results/real_setup_2_path.txt")
+        print("[FILE] Saved results/UR10_pick_place_shelf_path.txt")
     else:
         print("\n[RESULT] No path found.")
 
-    # ── Loop path animation until window is closed ────────────
+    # ── Path animation / GIF / loop ───────────────────────────
     if path:
         path_fine = interpolate_path(path, max_step=0.02)
+
+        if _args.save_gif:
+            from manipulator_env.demo_cli import save_path_gif
+            _gif_tag = _args.planner.replace('*', '').replace(' ', '_')
+            _gif_path = os.path.join(
+                os.path.dirname(os.path.abspath(__file__)),
+                'visualization', 'gifs',
+                f'pybullet_UR10_pick_place_shelf_{_gif_tag}.gif')
+            save_path_gif(
+                env, path_fine, _gif_path,
+                cam_yaw=241.60, cam_pitch=-27.40, cam_distance=1.20,
+                cam_target=[-0.345, -0.355, 0.970],
+                step=3, fps=20)
+            print(f"[GIF] Saved {_gif_path}")
+
+        if _args.headless:
+            env.disconnect()
+            return
+
         print("\n[ANIM] Showing path with EE trail ...")
         env.set_joint_positions(q_start)
         p.stepSimulation(physicsClientId=cid)

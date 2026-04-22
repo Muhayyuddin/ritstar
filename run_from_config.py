@@ -159,6 +159,20 @@ if ALL_6D_ENVS:
     ENV_REGISTRY['6D Cluttered'] = (env_6d_cluttered,  '6d')
     ENV_REGISTRY['6D Real Setup'] = (env_6d_real_setup, '6d')
 
+# ── UR10_* demo scenes as 6-D envs ──────────────────────────────────
+# Listing any of the names below in `environments:` runs the full benchmark
+# / MC pipeline on the corresponding UR10e demo scene, just like 2-D / 3-D
+# envs. Alongside, listing them in `pybullet_demos:` still launches the
+# original GUI/headless scripts with animation and GIF capture.
+try:
+    from rit_star.ur10_envs import UR10_ENV_REGISTRY as _UR10_ENV_REG
+    for _ur10_name, _ur10_fn in _UR10_ENV_REG.items():
+        ENV_REGISTRY[_ur10_name] = (_ur10_fn, '6d')
+        # lowercase alias so users can type 'ur10_pick_shelf' too
+        ENV_ALIASES[_ur10_name.lower()] = [_ur10_name]
+except Exception as _e:
+    print(f'[WARN] UR10 env registry unavailable: {_e}')
+
 
 # ═══════════════════════════════════════════════════════════════════════
 #  Planner builder
@@ -315,6 +329,13 @@ def load_config(path: str) -> dict:
         'ablation_batch_size': int(cfg.get('ablation_batch_size', 100)),
         'ablation_base_seed': int(cfg.get('ablation_base_seed', 42)),
         'ablation_envs': cfg.get('ablation_envs') or None,
+        # PyBullet 6-D demo scripts (sub-processes). Run headlessly by
+        # default, iterating over cfg['planners'] × cfg['n_trials'] seeds
+        # and writing one CSV row per run to results/demo_runs.csv.
+        'run_pybullet_demos': bool(cfg.get('run_pybullet_demos', False)),
+        'pybullet_demos': list(cfg.get('pybullet_demos') or []),
+        'pybullet_demos_gui': bool(cfg.get('pybullet_demos_gui', False)),
+        'pybullet_demos_save_gif': bool(cfg.get('pybullet_demos_save_gif', True)),
     }
 
 
@@ -989,6 +1010,119 @@ def run_benchmark(cfg: dict):
 
 
 # ═══════════════════════════════════════════════════════════════════════
+#  PyBullet 6-D demo dispatcher (launches GUI scripts one-by-one)
+# ═══════════════════════════════════════════════════════════════════════
+
+# Registry of 6-D GUI demos. Key = short name used in config;
+# value = (script filename, short description for the log).
+PYBULLET_DEMO_REGISTRY = {
+    'UR10_grasp_can':        ('UR10_grasp_can.py',
+                              'Top-down grasp of can next to kraft box wall'),
+    'UR10_pick_place_can':   ('UR10_pick_place_can.py',
+                              'Pick-and-place can over the wall'),
+    'UR10_pick_shelf':       ('UR10_pick_shelf.py',
+                              'Side-grasp mustard bottle from shelf'),
+    'UR10_pick_place_shelf': ('UR10_pick_place_shelf.py',
+                              'Place grasped bottle on top of shelf'),
+    'test_env':              ('test_env.py',
+                              'Static shelf scene — arm held at fixed q'),
+}
+
+
+def run_pybullet_demos(cfg: dict) -> None:
+    """Launch each configured 6-D demo for every planner in ``cfg['planners']``.
+
+    Runs headlessly (no GUI) and writes one CSV row per (planner, demo, seed)
+    to ``results/demo_runs.csv``. If ``cfg['pybullet_demos_gui']`` is True,
+    also launches one GUI pass per demo (only the first planner) so the user
+    can still inspect the scene visually. The ``n_trials`` and ``base_seed``
+    benchmark parameters are reused for how many seeds to run per planner.
+    """
+    import subprocess
+
+    demos = cfg.get('pybullet_demos') or []
+    if not demos:
+        print('  [INFO] pybullet_demos list is empty — skipping.')
+        return
+
+    planners = cfg.get('planners') or ['RIT*']
+    n_trials = int(cfg.get('n_trials', 1))
+    base_seed = int(cfg.get('base_seed', 42))
+    max_iter = int(cfg.get('max_iterations', 300))
+    batch_size = int(cfg.get('batch_size', 200))
+    want_gui = bool(cfg.get('pybullet_demos_gui', False))
+    want_gif = bool(cfg.get('pybullet_demos_save_gif', True))
+
+    print('\n' + '=' * 60)
+    print('  PYBULLET 6-D DEMOS (headless benchmark)')
+    print('=' * 60)
+    print(f'  Demos:     {demos}')
+    print(f'  Planners:  {planners}')
+    print(f'  Trials:    {n_trials}   Seed base: {base_seed}')
+    print(f'  Max iters: {max_iter}   Batch: {batch_size}')
+    print(f'  GUI pass:  {want_gui}')
+    print(f'  Save GIF:  {want_gif}  (visualization/gifs/pybullet_<demo>_<planner>.gif)')
+    print('=' * 60)
+
+    repo_root = os.path.dirname(os.path.abspath(__file__))
+    total = len(demos) * len(planners) * n_trials
+    run_i = 0
+
+    for demo_name in demos:
+        entry = PYBULLET_DEMO_REGISTRY.get(demo_name)
+        if entry is None:
+            print(f'  [WARN] Unknown demo "{demo_name}" — skipped.')
+            continue
+        script, desc = entry
+        script_path = os.path.join(repo_root, script)
+        if not os.path.isfile(script_path):
+            print(f'  [WARN] {script_path} not found — skipped.')
+            continue
+
+        print(f'\n  === {demo_name} — {desc} ===')
+
+        for planner_name in planners:
+            for trial in range(n_trials):
+                run_i += 1
+                seed = base_seed + trial
+                env = os.environ.copy()
+                env.update({
+                    'RIT_HEADLESS': '1',
+                    'RIT_PLANNER': planner_name,
+                    'RIT_SEED': str(seed),
+                    'RIT_SAVE_RESULTS': '1',
+                    'RIT_SAVE_GIF': '1' if want_gif else '0',
+                })
+                print(f'    [{run_i}/{total}] planner={planner_name}  '
+                      f'trial={trial+1}/{n_trials}  seed={seed} ...',
+                      flush=True)
+                try:
+                    subprocess.run(
+                        [sys.executable, script_path,
+                         '--max-iter', str(max_iter),
+                         '--batch-size', str(batch_size)],
+                        cwd=repo_root, env=env, check=False)
+                except KeyboardInterrupt:
+                    print(f'      [INT] {demo_name}/{planner_name} interrupted.')
+
+        # Optional GUI viewing pass — first planner only, single seed
+        if want_gui:
+            env = os.environ.copy()
+            env['RIT_PLANNER'] = planners[0]
+            env['RIT_SEED'] = str(base_seed)
+            print(f'    [GUI] {demo_name} with {planners[0]} '
+                  f'(close the window to continue)')
+            try:
+                subprocess.run([sys.executable, script_path],
+                               cwd=repo_root, env=env, check=False)
+            except KeyboardInterrupt:
+                print(f'      [INT] {demo_name} GUI pass interrupted.')
+
+    print('\n  All PyBullet demos done.  '
+          f'Results appended to results/demo_runs.csv')
+
+
+# ═══════════════════════════════════════════════════════════════════════
 #  CLI
 # ═══════════════════════════════════════════════════════════════════════
 
@@ -1020,3 +1154,6 @@ if __name__ == '__main__':
     if cfg.get('run_ablation', False):
         from run_ablation import run_ablation
         run_ablation(cfg)
+
+    if cfg.get('run_pybullet_demos', False):
+        run_pybullet_demos(cfg)

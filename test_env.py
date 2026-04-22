@@ -22,12 +22,12 @@ from UR10_pick_shelf import (
 )
 
 Q_TARGET = np.array([
-    0.1402721405029297,
-    -1.4614561361125489,
-    1.9491737524615687,
-    -2.5643683872618617,
-    -0.3139694372760218,
-    0.37099048495292664,
+    0.388500,
+    -1.153566,
+    1.438728,
+    -3.427242,
+    -0.388503,
+    0.000483,
 ])
 
 MUSTARD_URDF = "/home/muhayy/Documents/forsight-tamp/assets/ycb_objects/ycb_assets/006_mustard_bottle.urdf"

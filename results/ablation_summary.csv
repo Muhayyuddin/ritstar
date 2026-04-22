@@ -1,0 +1,26 @@
+variant,env,cost_mean,cost_std,time_mean_s,n_success
+full,3D Diagonal,2.363717,0.051201,15.2837,10
+full,UR10_pick_shelf,8.704955,0.982223,20.1660,10
+full,UR10_pick_place_shelf,3.807758,2.911214,17.0224,10
+full,UR10_grasp_can,2.418333,0.856080,16.2974,10
+full,UR10_pick_place_can,1.836730,0.289881,14.5582,10
+no_riem_samp,3D Diagonal,2.331182,0.057584,15.4515,10
+no_riem_samp,UR10_pick_shelf,8.703295,0.982577,26.0529,10
+no_riem_samp,UR10_pick_place_shelf,3.594430,2.761487,20.7839,10
+no_riem_samp,UR10_grasp_can,2.458151,0.882776,20.9595,10
+no_riem_samp,UR10_pick_place_can,1.846742,0.253873,15.1939,10
+no_cascading,3D Diagonal,inf,0.000000,0.0000,0
+no_cascading,UR10_pick_shelf,inf,0.000000,0.0000,0
+no_cascading,UR10_pick_place_shelf,inf,0.000000,0.0000,0
+no_cascading,UR10_grasp_can,inf,0.000000,0.0000,0
+no_cascading,UR10_pick_place_can,inf,0.000000,0.0000,0
+no_carm,3D Diagonal,2.110358,0.007482,5.7527,10
+no_carm,UR10_pick_shelf,2.500381,0.231073,28.6426,10
+no_carm,UR10_pick_place_shelf,0.716245,0.079707,4.3967,10
+no_carm,UR10_grasp_can,2.115931,0.149986,5.1726,10
+no_carm,UR10_pick_place_can,1.935698,0.241281,3.9846,10
+no_smoothing,3D Diagonal,2.382614,0.052943,15.6526,10
+no_smoothing,UR10_pick_shelf,8.879148,0.947876,17.8191,10
+no_smoothing,UR10_pick_place_shelf,4.441907,2.407931,16.0342,10
+no_smoothing,UR10_grasp_can,4.914603,1.085669,14.8756,10
+no_smoothing,UR10_pick_place_can,4.969812,0.932444,13.7389,10

@@ -18,8 +18,44 @@ from typing import List, Tuple, Optional
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from rit_star.rit_star import RITStar, riemannian_edge_cost
+from rit_star.baselines import InformedRRTStar, BITStar, AITStar, EITStar, APTStar
 from rit_star.metric import RiemannianMetric, TaskSpaceMetric, DiagonalAnisotropicMetric
 from manipulator_env.pybullet_env import UR10eRobotiqEnv
+
+
+# Generic planner dispatch — any of the 6 benchmarked planners can be
+# built for the 6-D UR10e demos, same signature as the 2-D/3-D comparison.
+_PLANNER_CLASSES = {
+    'RIT*':          RITStar,
+    'Informed RRT*': InformedRRTStar,
+    'BIT*':          BITStar,
+    'AIT*':          AITStar,
+    'EIT*':          EITStar,
+    'APT*':          APTStar,
+}
+
+_PLANNER_ALIASES = {
+    'rit': 'RIT*', 'rit*': 'RIT*',
+    'irrt': 'Informed RRT*', 'informed_rrt': 'Informed RRT*',
+    'informed-rrt': 'Informed RRT*', 'informedrrt': 'Informed RRT*',
+    'informed_rrt*': 'Informed RRT*', 'informed rrt': 'Informed RRT*',
+    'informed rrt*': 'Informed RRT*',
+    'bit': 'BIT*', 'bit*': 'BIT*',
+    'ait': 'AIT*', 'ait*': 'AIT*',
+    'eit': 'EIT*', 'eit*': 'EIT*',
+    'apt': 'APT*', 'apt*': 'APT*',
+}
+
+
+def _resolve_planner_name(name: str) -> str:
+    """Map a user-supplied planner short name to its canonical key."""
+    if name in _PLANNER_CLASSES:
+        return name
+    canonical = _PLANNER_ALIASES.get(name.strip().lower())
+    if canonical is None:
+        raise ValueError(
+            f'Unknown planner "{name}". Known: {list(_PLANNER_CLASSES)}')
+    return canonical
 
 
 class ManipulatorInertiaMetric(RiemannianMetric):
@@ -127,6 +163,46 @@ def build_rit_star_planner(
     return planner
 
 
+def build_planner(
+    name: str,
+    env: UR10eRobotiqEnv,
+    q_start: np.ndarray,
+    q_goal: np.ndarray,
+    metric: Optional[RiemannianMetric] = None,
+    batch_size: int = 200,
+    max_iterations: int = 300,
+    seed: int = 42,
+):
+    """Build any of the 6 benchmarked planners for a UR10e env.
+
+    Accepts the same canonical / short names as the 2-D/3-D pipeline
+    (RIT*, Informed RRT*, BIT*, AIT*, EIT*, APT*).
+    """
+    canonical = _resolve_planner_name(name)
+    cls = _PLANNER_CLASSES[canonical]
+    if metric is None:
+        metric = ManipulatorInertiaMetric(env)
+
+    bounds = env.get_bounds()
+
+    def collision_checker(q):
+        return env.is_collision_free(q)
+
+    kwargs = dict(
+        x_start=np.asarray(q_start, dtype=float),
+        x_goal=np.asarray(q_goal, dtype=float),
+        c_space_bounds=bounds,
+        collision_checker=collision_checker,
+        metric=metric,
+        batch_size=batch_size,
+        max_iterations=max_iterations,
+        random_seed=seed,
+    )
+    if canonical == 'RIT*':
+        kwargs['geodesic_tier'] = 'diagonal'
+    return cls(**kwargs)
+
+
 def shortcut_smooth(path: List[np.ndarray],
                     env: UR10eRobotiqEnv,
                     metric: RiemannianMetric,
@@ -182,8 +258,10 @@ def plan_and_execute(
     smooth: bool = True,
     animate: bool = True,
     animate_delay: float = 0.02,
+    planner_name: str = 'RIT*',
+    seed: int = 42,
 ) -> Tuple[List[np.ndarray], float]:
-    """Full pipeline: plan with RIT*, smooth, interpolate, execute.
+    """Full pipeline: plan with the chosen planner, smooth, animate.
 
     Parameters
     ----------
@@ -192,8 +270,13 @@ def plan_and_execute(
     metric : RiemannianMetric or None
     batch_size, max_iterations : planner parameters
     smooth : bool — apply shortcut smoothing
-    animate : bool — animate in PyBullet GUI
+    animate : bool — animate in PyBullet GUI (ignored if env is headless)
     animate_delay : float
+    planner_name : str
+        Any of 'RIT*', 'Informed RRT*', 'BIT*', 'AIT*', 'EIT*', 'APT*'
+        (case-insensitive; short aliases like 'bit', 'irrt' accepted).
+        Default 'RIT*' preserves legacy behaviour.
+    seed : int — planner random seed.
 
     Returns
     -------
@@ -205,8 +288,10 @@ def plan_and_execute(
     if metric is None:
         metric = ManipulatorInertiaMetric(env)
 
-    print(f"[RIT*] Planning from q_start to q_goal in 6-DOF C-space ...")
-    print(f"       batch_size={batch_size}, max_iter={max_iterations}")
+    canonical = _resolve_planner_name(planner_name)
+    tag = f'[{canonical}]'
+    print(f"{tag} Planning from q_start to q_goal in 6-DOF C-space ...")
+    print(f"       batch_size={batch_size}, max_iter={max_iterations}, seed={seed}")
 
     # Disable rendering so collision checks don't visually move the robot
     env.disable_rendering()
@@ -214,36 +299,37 @@ def plan_and_execute(
     # Set robot to start config visually before hiding
     env.set_joint_positions(q_start)
 
-    planner = build_rit_star_planner(
-        env, q_start, q_goal,
+    planner = build_planner(
+        canonical, env, q_start, q_goal,
         metric=metric,
         batch_size=batch_size,
         max_iterations=max_iterations,
+        seed=seed,
     )
 
     path, cost = planner.plan()
 
     if not path:
         env.enable_rendering()
-        print("[RIT*] No solution found!")
+        print(f"{tag} No solution found!")
         return [], float("inf")
 
-    print(f"[RIT*] Solution found! Cost = {cost:.4f}, waypoints = {len(path)}")
+    print(f"{tag} Solution found! Cost = {cost:.4f}, waypoints = {len(path)}")
 
     stats = planner.get_stats()
     if stats:
-        print(f"[RIT*] Iterations: {len(stats)}, "
+        print(f"{tag} Iterations: {len(stats)}, "
               f"final tree size: {stats[-1].get('n_vertices', '?')}")
 
     # Smooth (still with rendering off)
     if smooth and len(path) > 2:
-        print("[RIT*] Shortcut smoothing ...")
+        print(f"{tag} Shortcut smoothing ...")
         path = shortcut_smooth(path, env, metric, max_iters=300)
         smooth_cost = sum(
             riemannian_edge_cost(path[i], path[i + 1], metric)
             for i in range(len(path) - 1)
         )
-        print(f"[RIT*] After smoothing: cost = {smooth_cost:.4f}, "
+        print(f"{tag} After smoothing: cost = {smooth_cost:.4f}, "
               f"waypoints = {len(path)}")
         cost = smooth_cost
 
@@ -252,7 +338,7 @@ def plan_and_execute(
 
     # Interpolate for smooth animation
     path_fine = interpolate_path(path, max_step=0.02)
-    print(f"[RIT*] Interpolated to {len(path_fine)} waypoints for animation.")
+    print(f"{tag} Interpolated to {len(path_fine)} waypoints for animation.")
 
     # Show start/goal markers
     env.visualize_config(q_start, color=[0, 0, 1, 1])   # blue = start
@@ -261,7 +347,7 @@ def plan_and_execute(
     # Animate in a loop (finite to avoid X server timeout)
     if animate:
         n_loops = 3
-        print(f"[RIT*] Animating path ({n_loops} loops, Ctrl+C to stop) ...")
+        print(f"{tag} Animating path ({n_loops} loops, Ctrl+C to stop) ...")
         try:
             for loop_i in range(n_loops):
                 env.set_joint_positions(q_start)
@@ -270,11 +356,11 @@ def plan_and_execute(
                 time.sleep(0.5)
             # Hold final pose for a few seconds so user can inspect
             env.set_joint_positions(q_goal)
-            print("[RIT*] Animation complete. Holding final pose for 5s ...")
+            print(f"{tag} Animation complete. Holding final pose for 5s ...")
             time.sleep(5.0)
         except KeyboardInterrupt:
-            print("\n[RIT*] Animation stopped.")
+            print(f"\n{tag} Animation stopped.")
     else:
-        print("[RIT*] Done (headless mode, no animation).")
+        print(f"{tag} Done (headless mode, no animation).")
 
     return path, cost

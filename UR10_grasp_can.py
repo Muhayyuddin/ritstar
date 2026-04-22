@@ -44,7 +44,7 @@ ROBOT_BASE_Z    = TABLE_SURFACE_Z + SLAB_THICKNESS  # 0.76990
 
 TABLE_LEN = 1.00
 TABLE_WID = 1.50
-TABLE_THK = 0.054
+TABLE_THK = 0.05
 TABLE_CX  = -0.29
 TABLE_CY  = -0.07
 
@@ -208,11 +208,14 @@ def find_ik(env, target_pos, side_label="", n_random=200,
 # ═══════════════════════════════════════════════════════════════════════
 
 def main():
+    from manipulator_env.demo_cli import parse_demo_args, append_demo_result_csv
+    _args = parse_demo_args()
     wall_obstacles = build_wall_obstacles()
 
-    print("[ENV] Loading PyBullet (GUI) ...")
+    mode = 'headless' if _args.headless else 'GUI'
+    print(f"[ENV] Loading PyBullet ({mode}) ...")
     env = UR10eRobotiqEnv(
-        gui=True,
+        gui=not _args.headless,
         obstacles=wall_obstacles,
         base_position=[0.0, 0.0, ROBOT_BASE_Z],
         base_orientation=p.getQuaternionFromEuler([0, 0, np.pi]),
@@ -385,24 +388,42 @@ def main():
 
     # ── Plan ──────────────────────────────────────────────────────
     fast_metric = DiagonalAnisotropicMetric(weights=_UR10E_WEIGHTS)
+    import time as _time
+    _t0 = _time.time()
     path, cost = plan_and_execute(
         env,
         q_start,
         q_goal,
         metric=fast_metric,
-        batch_size=200,
-        max_iterations=300,
+        batch_size=_args.batch_size,
+        max_iterations=_args.max_iterations,
         smooth=True,
         animate=False,
         animate_delay=0.02,
+        planner_name=_args.planner,
+        seed=_args.seed,
     )
+    _elapsed = _time.time() - _t0
+
+    if _args.save_results:
+        append_demo_result_csv({
+            'demo': 'UR10_grasp_can',
+            'planner': _args.planner,
+            'seed': _args.seed,
+            'max_iterations': _args.max_iterations,
+            'batch_size': _args.batch_size,
+            'final_cost': float(cost) if np.isfinite(cost) else float('inf'),
+            'waypoints': len(path) if path else 0,
+            'time_s': float(_elapsed),
+            'success': bool(path),
+        })
 
     if path:
         print(f"\n[RESULT] Path found — cost: {cost:.4f}, waypoints: {len(path)}")
 
         os.makedirs("results", exist_ok=True)
 
-        with open("results/wall_env_world_state.txt", "w") as f:
+        with open("results/UR10_grasp_can_world_state.txt", "w") as f:
             f.write("=" * 62 + "\n")
             f.write("  Wall Environment — World State\n")
             f.write("=" * 62 + "\n\n")
@@ -435,9 +456,9 @@ def main():
             f.write(f"  Max iters     : 300\n")
             f.write(f"  Path cost     : {cost:.6f}\n")
             f.write(f"  Waypoints     : {len(path)}\n")
-        print("[FILE] Saved results/wall_env_world_state.txt")
+        print("[FILE] Saved results/UR10_grasp_can_world_state.txt")
 
-        with open("results/wall_env_path.txt", "w") as f:
+        with open("results/UR10_grasp_can_path.txt", "w") as f:
             f.write("=" * 62 + "\n")
             f.write("  Wall Environment — Complete Path (Joint Configurations)\n")
             f.write("=" * 62 + "\n")
@@ -451,17 +472,35 @@ def main():
             for i, q in enumerate(path):
                 f.write(f"  {i:4d}  " + "  ".join(f"{v:+10.6f}" for v in q) + "\n")
             f.write("-" * 62 + "\n")
-        print("[FILE] Saved results/wall_env_path.txt")
+        print("[FILE] Saved results/UR10_grasp_can_path.txt")
 
         # Animate path in GUI after saving so that an interrupted animation
         # does not prevent the world-state / path files from being written.
         path_fine = interpolate_path(path, max_step=0.02)
+
+        if _args.save_gif:
+            from manipulator_env.demo_cli import save_path_gif
+            _gif_tag = _args.planner.replace('*', '').replace(' ', '_')
+            _gif_path = os.path.join(
+                os.path.dirname(os.path.abspath(__file__)),
+                'visualization', 'gifs',
+                f'pybullet_UR10_grasp_can_{_gif_tag}.gif')
+            save_path_gif(
+                env, path_fine, _gif_path,
+                cam_yaw=-114.60, cam_pitch=-40.20, cam_distance=1.60,
+                cam_target=[-0.449, -0.041, 0.892],
+                step=3, fps=20)
+            print(f"[GIF] Saved {_gif_path}")
+
+        if _args.headless:
+            env.disconnect()
+            return
+
         env.set_joint_positions(q_start)
         time.sleep(0.5)
         print("[ANIM] Animating path (first pass with trail) ...")
         env.visualize_path(path_fine, delay=0.02, trail=True)
         time.sleep(1.0)
-
         print("\n[LOOP] Replaying path (close PyBullet window or Ctrl+C to exit) ...")
         try:
             while p.isConnected(physicsClientId=cid):
@@ -476,6 +515,9 @@ def main():
             env.disconnect()
     else:
         print("\n[RESULT] No path found.")
+        if _args.headless:
+            env.disconnect()
+            return
         print("\n  Press Ctrl+C to exit.")
         try:
             while True:

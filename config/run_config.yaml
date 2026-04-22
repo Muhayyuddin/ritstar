@@ -52,9 +52,10 @@
 #planners: all
 #environments: [2D]
 
-planners:      ['RIT*']
-#, 'Informed RRT*', 'BIT*', 'AIT*', 'EIT*', 'APT*']
-environments:  ['3D Diagonal','3D Box Field']
+planners:      ['RIT*', 'Informed RRT*', 'BIT*', 'AIT*', 'EIT*', 'APT*']
+environments:  ['random_world', '3D Diagonal']
+#['random_world','dividing_wall', '3D Diagonal','3D Box Field','UR10_pick_shelf','UR10_pick_place_shelf', 'UR10_grasp_can','UR10_pick_place_can']
+#'3D Diagonal','3D Box Field']
 
 #['random_world','dividing_wall']
 #environments:  ['random_world','dividing_wall','2D Diagonal', '2D Obstacle', '2D Narrow', '2D Maze', '2D Bug Trap', '2D Forest', '2D Terrain', '2D Hyper-Dense', '2D Joint Arm']
@@ -106,12 +107,12 @@ mc_visualize: true
 #                  results/ablation_table.tex   (paste-ready LaTeX)
 # ablation_envs: list of env names (from ENV_REGISTRY). Default covers the
 #                paper table: [2D Maze, 3D Spheres, 6D Shelf, 6D Cluttered].
-run_ablation: false
+run_ablation: true
 ablation_n_trials: 10
 ablation_max_iterations: 150
 ablation_batch_size: 100
 ablation_base_seed: 42
-# ablation_envs: ['2D Maze', '3D Spheres', '6D Shelf', '6D Cluttered']
+ablation_envs: ['random_world', '3D Diagonal', 'UR10_pick_shelf','UR10_pick_place_shelf', 'UR10_grasp_can','UR10_pick_place_can']
 
 # ── 6-D PyBullet demos (UR10e + Robotiq scenes, GUI-only) ─────────────
 # Each entry launches the corresponding script as a sub-process. The
@@ -128,13 +129,14 @@ ablation_base_seed: 42
 #                           compartment of a 2-shelf rack.
 #   UR10_pick_place_shelf : starting from a grasped bottle (Phase 2),
 #                           place it on top of the shelf.
-#   test_env              : replicate the shelf world and hold the arm
-#                           at a fixed joint config (no planning).
-run_pybullet_demos: false
-pybullet_demos: []
+
+run_pybullet_demos: true
+pybullet_demos_gui: false     # set true to also open each demo in a GUI pass
+pybullet_demos_save_gif: true # save visualization/gifs/pybullet_<demo>_<planner>.gif
+pybullet_demos: ['UR10_grasp_can']
 # pybullet_demos:
 #   - UR10_grasp_can
 #   - UR10_pick_place_can
 #   - UR10_pick_shelf
 #   - UR10_pick_place_shelf
-#   - test_env
+

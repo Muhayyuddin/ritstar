@@ -312,11 +312,14 @@ def visualize_path_with_can(env, path, delay=0.03, trail=True):
 # ═══════════════════════════════════════════════════════════════════════
 
 def main():
+    from manipulator_env.demo_cli import parse_demo_args, append_demo_result_csv
+    _args = parse_demo_args()
     wall_obstacles = build_wall_obstacles()
 
-    print("[ENV] Loading PyBullet (GUI) ...")
+    mode = 'headless' if _args.headless else 'GUI'
+    print(f"[ENV] Loading PyBullet ({mode}) ...")
     env = UR10eRobotiqEnv(
-        gui=True,
+        gui=not _args.headless,
         obstacles=wall_obstacles,
         base_position=[0.0, 0.0, ROBOT_BASE_Z],
         base_orientation=p.getQuaternionFromEuler([0, 0, np.pi]),
@@ -436,23 +439,60 @@ def main():
 
     # ── Plan ──────────────────────────────────────────────────────
     fast_metric = DiagonalAnisotropicMetric(weights=_UR10E_WEIGHTS)
+    import time as _time
+    _t0 = _time.time()
     path, cost = plan_and_execute(
         env,
         q_start,
         q_goal,
         metric=fast_metric,
-        batch_size=200,
-        max_iterations=300,
+        batch_size=_args.batch_size,
+        max_iterations=_args.max_iterations,
         smooth=True,
         animate=False,
+        planner_name=_args.planner,
+        seed=_args.seed,
     )
+    _elapsed = _time.time() - _t0
+
+    if _args.save_results:
+        append_demo_result_csv({
+            'demo': 'UR10_pick_place_can',
+            'planner': _args.planner,
+            'seed': _args.seed,
+            'max_iterations': _args.max_iterations,
+            'batch_size': _args.batch_size,
+            'final_cost': float(cost) if np.isfinite(cost) else float('inf'),
+            'waypoints': len(path) if path else 0,
+            'time_s': float(_elapsed),
+            'success': bool(path),
+        })
 
     if path:
         print(f"\n[RESULT] Path found — cost: {cost:.4f}, waypoints: {len(path)}")
 
+        path_fine = interpolate_path(path, max_step=0.02)
+
+        if _args.save_gif:
+            from manipulator_env.demo_cli import save_path_gif
+            _gif_tag = _args.planner.replace('*', '').replace(' ', '_')
+            _gif_path = os.path.join(
+                os.path.dirname(os.path.abspath(__file__)),
+                'visualization', 'gifs',
+                f'pybullet_UR10_pick_place_can_{_gif_tag}.gif')
+            save_path_gif(
+                env, path_fine, _gif_path,
+                cam_yaw=-114.60, cam_pitch=-40.20, cam_distance=1.60,
+                cam_target=[-0.449, -0.041, 0.892],
+                step=3, fps=20)
+            print(f"[GIF] Saved {_gif_path}")
+
+        if _args.headless:
+            env.disconnect()
+            return
+
         # Animate with can attached
         print("[ANIM] Animating path with grasped can ...")
-        path_fine = interpolate_path(path, max_step=0.02)
         env.set_joint_positions(q_start)
         for _ in range(10):
             p.stepSimulation(physicsClientId=cid)
@@ -461,7 +501,7 @@ def main():
 
         os.makedirs("results", exist_ok=True)
 
-        with open("results/wall_carry_world_state.txt", "w") as f:
+        with open("results/UR10_pick_place_can_world_state.txt", "w") as f:
             f.write("=" * 62 + "\n")
             f.write("  Wall Carry Demo — World State\n")
             f.write("=" * 62 + "\n\n")
@@ -498,9 +538,9 @@ def main():
             f.write(f"  Max iters     : 300\n")
             f.write(f"  Path cost     : {cost:.6f}\n")
             f.write(f"  Waypoints     : {len(path)}\n")
-        print("[FILE] Saved results/wall_carry_world_state.txt")
+        print("[FILE] Saved results/UR10_pick_place_can_world_state.txt")
 
-        with open("results/wall_carry_path.txt", "w") as f:
+        with open("results/UR10_pick_place_can_path.txt", "w") as f:
             f.write("=" * 62 + "\n")
             f.write("  Wall Carry Demo — Complete Path (Joint Configurations)\n")
             f.write("=" * 62 + "\n")
@@ -512,11 +552,14 @@ def main():
             for i, q in enumerate(path):
                 f.write(f"  {i:4d}  " + "  ".join(f"{v:+10.6f}" for v in q) + "\n")
             f.write("-" * 62 + "\n")
-        print("[FILE] Saved results/wall_carry_path.txt")
+        print("[FILE] Saved results/UR10_pick_place_can_path.txt")
     else:
         print("\n[RESULT] No path found.")
 
     # ── Loop path animation until window is closed ────────────
+    if _args.headless:
+        env.disconnect()
+        return
     if path:
         print("\n[LOOP] Replaying path (close PyBullet window to exit) ...")
         finger_link_idx = env._joint_name_to_idx.get(
