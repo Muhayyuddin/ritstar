@@ -166,10 +166,39 @@ def env_ur10_pick_place_shelf():
     return _finalise(env, q_grasp_pose, q_goal)
 
 
+# ── UR10_pick_place_drill — carry power drill over kraft-box wall ────
+# Hard-coded (q_start, q_goal) from UR10_pick_place_drill.py.
+# q_start wrist_3 = IK base (-2.470412) + finger-rotation offset (-π/2)
+# q_goal  wrist_3 = -4.086318 (same effective orientation as start)
+_UR10_PICK_PLACE_DRILL_Q_START = np.array([
+    0.671183, -0.993925,  1.692647,
+   -2.269542, -1.570794, -4.041208,   # -2.470412 − π/2
+])
+_UR10_PICK_PLACE_DRILL_Q_GOAL = np.array([
+   -0.944723, -1.190356,  2.023317,
+   -2.403726, -1.570796, -4.086318,
+])
+
+
+def env_ur10_pick_place_drill():
+    """6-D UR10e: pick power drill by handle and carry it over the wall."""
+    import UR10_pick_place_drill as demo
+
+    env = UR10eRobotiqEnv(
+        gui=False, obstacles=demo.build_wall_obstacles(),
+        base_position=[0.0, 0.0, demo.ROBOT_BASE_Z],
+        base_orientation=_BASE_ORN,
+    )
+    return _finalise(env,
+                     _UR10_PICK_PLACE_DRILL_Q_START,
+                     _UR10_PICK_PLACE_DRILL_Q_GOAL)
+
+
 # Public registry — consumed by run_from_config.py
 UR10_ENV_REGISTRY = {
-    'UR10_grasp_can':        env_ur10_grasp_can,
-    'UR10_pick_place_can':   env_ur10_pick_place_can,
-    'UR10_pick_shelf':       env_ur10_pick_shelf,
-    'UR10_pick_place_shelf': env_ur10_pick_place_shelf,
+    'UR10_grasp_can':          env_ur10_grasp_can,
+    'UR10_pick_place_can':     env_ur10_pick_place_can,
+    'UR10_pick_shelf':         env_ur10_pick_shelf,
+    'UR10_pick_place_shelf':   env_ur10_pick_place_shelf,
+    'UR10_pick_place_drill':   env_ur10_pick_place_drill,
 }

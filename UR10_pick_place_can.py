@@ -28,7 +28,7 @@ from rit_star.metric import DiagonalAnisotropicMetric
 
 # Fast inertia-based diagonal metric
 _UR10E_INERTIAS = np.array([7.778, 12.93, 3.87, 1.96, 1.96, 0.202])
-_UR10E_WEIGHTS = (_UR10E_INERTIAS / _UR10E_INERTIAS.max()).tolist()
+_UR10E_WEIGHTS = (_UR10E_INERTIAS / _UR10E_INERTIAS.min()).tolist()
 
 # ═══════════════════════════════════════════════════════════════════════
 # Physical constants (metres) — identical to run_wall_env.py
@@ -45,11 +45,12 @@ TABLE_CX  = -0.29
 TABLE_CY  = -0.07
 
 # Wall — identical to run_wall_env.py
-WALL_L     = 0.54
-WALL_X     = -0.60
-WALL_Y     = 0.00
-WALL_W     = 0.182
-WALL_H     = 0.50
+# Wall: vertical barrier in front of robot, long axis along world x
+WALL_L     = 0.57    # length along x-axis (57 cm)
+WALL_X     = -0.60              # absolute wall centre x
+WALL_Y     = 0.00               # absolute wall centre y
+WALL_W     = 0.12     # thickness / depth (y-extent, 38 cm)
+WALL_H     =  0.38  # height above table  (12 cm)
 WALL_Z_BOT = ROBOT_BASE_Z
 WALL_Z_MID = WALL_Z_BOT + WALL_H / 2
 

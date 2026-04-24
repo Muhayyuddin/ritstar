@@ -27,7 +27,7 @@ from UR10_pick_shelf import compute_side_grasp_ik as _compute_phase1_goal_ik
 
 # Fast inertia-based diagonal metric (no PyBullet calls per evaluation)
 _UR10E_INERTIAS = np.array([7.778, 12.93, 3.87, 1.96, 1.96, 0.202])
-_UR10E_WEIGHTS = (_UR10E_INERTIAS / _UR10E_INERTIAS.max()).tolist()
+_UR10E_WEIGHTS = (_UR10E_INERTIAS / _UR10E_INERTIAS.min()).tolist()
 
 # ═══════════════════════════════════════════════════════════════════════
 # Physical constants (all in metres) — same as run_real_setup_test.py

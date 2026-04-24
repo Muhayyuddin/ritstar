@@ -27,7 +27,7 @@ from rit_star.metric import DiagonalAnisotropicMetric
 
 # Fast inertia-based diagonal metric
 _UR10E_INERTIAS = np.array([7.369, 13.051, 3.989, 2.1, 1.98, 0.615])
-_UR10E_WEIGHTS = (_UR10E_INERTIAS / _UR10E_INERTIAS.max()).tolist()
+_UR10E_WEIGHTS = (_UR10E_INERTIAS / _UR10E_INERTIAS.min()).tolist()
 REAL_SETUP_Q_START = np.array([-np.pi / 2, -np.pi / 2, np.pi / 2,
                                -np.pi / 2, -np.pi / 2, 0.0])
 TOP_DOWN_ORN = list(p.getQuaternionFromEuler([0, np.pi / 2, 0]))
@@ -49,11 +49,11 @@ TABLE_CX  = -0.29
 TABLE_CY  = -0.07
 
 # Wall: vertical barrier in front of robot, long axis along world x
-WALL_L     = 0.54    # length along x-axis (54 cm)
+WALL_L     = 0.57    # length along x-axis (57 cm)
 WALL_X     = -0.60              # absolute wall centre x
 WALL_Y     = 0.00               # absolute wall centre y
-WALL_W     = 0.182   # thickness / depth (y-extent, 18.2 cm)
-WALL_H     = 0.50    # height above table surface (50 cm)
+WALL_W     = 0.12     # thickness / depth (y-extent, 38 cm)
+WALL_H     =  0.38  # height above table surface (12 cm)
 WALL_Z_BOT = ROBOT_BASE_Z          # base of wall = table surface
 WALL_Z_MID = WALL_Z_BOT + WALL_H / 2
 
@@ -311,23 +311,34 @@ def main():
         env.disconnect()
         return
 
-    # Start = goal with shoulder-pan (joint 1) flipped by π, so the arm
-    # is the mirror image on the opposite (+y) side of the wall. Only
-    # joint 1 needs to rotate to get from start to goal.
-    q_start = q_goal.copy()
-    q_start[0] = q_goal[0] + np.pi
-    if q_start[0] > np.pi:
-        q_start[0] -= 2 * np.pi
-    if not env.is_collision_free(q_start):
-        # fall back: try rotating the other way
+    # Start: top-down pose between the +y face of the box and the +y table
+    # edge, 5 cm above the table surface (fingers near the tabletop).
+    start_target = [
+        WALL_X,                                    # aligned with box centre in x
+        WALL_Y + WALL_W / 2 + 0.45,                # +y side, 45 cm past box face
+        TABLE_SURFACE_Z + 0.05 + GRASP_OFFSET_Z,   # EE 5 cm above table (top-down)
+    ]
+    print(f"[IK]  Computing start IK  target="
+          f"{[round(v, 3) for v in start_target]}")
+    q_start = find_ik(env, start_target, side_label="START (+y, low)",
+                      desired_orn=TOP_DOWN_ORN, pos_tol=0.02)
+
+    if q_start is None:
+        # Fallback: mirror of goal across the box (joint-1 ± π).
+        print("[IK]  Start IK failed, falling back to joint-1 flip.")
         q_start = q_goal.copy()
-        q_start[0] = q_goal[0] - np.pi
-        if q_start[0] < -np.pi:
-            q_start[0] += 2 * np.pi
+        q_start[0] = q_goal[0] + np.pi
+        if q_start[0] > np.pi:
+            q_start[0] -= 2 * np.pi
         if not env.is_collision_free(q_start):
-            print("[FATAL] Mirror start config is in collision.")
-            env.disconnect()
-            return
+            q_start = q_goal.copy()
+            q_start[0] = q_goal[0] - np.pi
+            if q_start[0] < -np.pi:
+                q_start[0] += 2 * np.pi
+            if not env.is_collision_free(q_start):
+                print("[FATAL] No collision-free start config found.")
+                env.disconnect()
+                return
     print(f"[START] Using start configuration: [{', '.join(f'{v:.4f}' for v in q_start)}]")
 
     assert env.is_collision_free(q_start), "Start config is in collision!"

@@ -37,6 +37,6 @@
 --- Planner ---
   Algorithm     : RIT*
   Metric        : DiagonalAnisotropicMetric
-  Path cost     : 0.862457
+  Path cost     : 5.930909
   Waypoints     : 4
   Bottle collision : ENABLED (attached body)

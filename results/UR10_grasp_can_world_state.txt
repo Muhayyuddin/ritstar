@@ -11,28 +11,28 @@
   Dimensions    : 1.00 x 1.50 x 0.05 m
 
 --- Wall (along world x-axis) ---
-  Centre        : [-0.600, 0.000, 1.020]
-  Thickness (x) : 0.182 m
-  Length (y)    : 0.540 m
-  Height (z)    : 0.500 m
+  Centre        : [-0.600, 0.000, 0.960]
+  Thickness (x) : 0.120 m
+  Length (y)    : 0.570 m
+  Height (z)    : 0.380 m
 
 --- Obstacles ---
   [0] box  pos=[-0.29, -0.07, 0.725]  he=[0.5, 0.75, 0.025]
-  [1] box  pos=[-0.6, 0.0, 1.0199]  he=[0.27, 0.091, 0.25]
+  [1] box  pos=[-0.6, 0.0, 0.9599]  he=[0.285, 0.06, 0.19]
 
 --- Start Configuration (+y side) ---
-  q_start (rad) : [-2.477309, -0.985480, 1.677681, -2.263020, -1.570794, -2.477311]
-  EE position   : [0.59996, 0.69095, 0.97998]
+  q_start (rad) : [-0.927488, -1.127071, 1.958584, -2.402277, -1.570797, -4.069079]
+  EE position   : [-0.60000, 0.51000, 0.96506]
 
 --- Goal Configuration (−y side) ---
-  q_goal  (rad) : [0.664284, -0.985480, 1.677681, -2.263020, -1.570794, -2.477311]
-  EE position   : [-0.59996, -0.69095, 0.97998]
+  q_goal  (rad) : [0.636455, -1.015137, 1.729852, -2.285535, -1.570794, 3.778045]
+  EE position   : [-0.59996, -0.65995, 0.97998]
 
 --- Planner ---
   Algorithm     : RIT*
   Metric        : DiagonalAnisotropicMetric
-  Weights       : [0.56463, 1.0, 0.30565, 0.16091, 0.15171, 0.04712]
+  Weights       : [11.98211, 21.22114, 6.48618, 3.41463, 3.21951, 1.0]
   Batch size    : 200
   Max iters     : 300
-  Path cost     : 2.831499
+  Path cost     : 9.886961
   Waypoints     : 3

@@ -53,8 +53,9 @@
 #environments: [2D]
 
 planners:      ['RIT*', 'Informed RRT*', 'BIT*', 'AIT*', 'EIT*', 'APT*']
-environments:  ['random_world', '3D Diagonal']
-#['random_world','dividing_wall', '3D Diagonal','3D Box Field','UR10_pick_shelf','UR10_pick_place_shelf', 'UR10_grasp_can','UR10_pick_place_can']
+#environments:  ['random_world', '3D Diagonal', 'UR10_pick_place_drill']
+environments:  ['UR10_pick_place_can']
+#['random_world','dividing_wall', '3D Diagonal','3D Box Field','UR10_pick_shelf','UR10_pick_place_shelf', 'UR10_grasp_can','UR10_pick_place_can','UR10_pick_place_drill']
 #'3D Diagonal','3D Box Field']
 
 #['random_world','dividing_wall']
@@ -92,7 +93,7 @@ bench_base_seed: 42
 # run_mc: run the full Monte Carlo comparison pipeline
 #         (generates CSV tables, convergence plots, box plots, etc.)
 # mc parameters below are only used when run_mc is true.
-run_mc: true
+run_mc: false
 mc_n_trials: 10
 mc_max_iterations: 150
 mc_batch_size: 100
@@ -112,7 +113,7 @@ ablation_n_trials: 10
 ablation_max_iterations: 150
 ablation_batch_size: 100
 ablation_base_seed: 42
-ablation_envs: ['random_world', '3D Diagonal', 'UR10_pick_shelf','UR10_pick_place_shelf', 'UR10_grasp_can','UR10_pick_place_can']
+ablation_envs: ['random_world', '3D Diagonal', 'UR10_pick_shelf','UR10_pick_place_can', 'UR10_grasp_can','UR10_pick_place_can','UR10_pick_place_drill']
 
 # ── 6-D PyBullet demos (UR10e + Robotiq scenes, GUI-only) ─────────────
 # Each entry launches the corresponding script as a sub-process. The
@@ -130,13 +131,14 @@ ablation_envs: ['random_world', '3D Diagonal', 'UR10_pick_shelf','UR10_pick_plac
 #   UR10_pick_place_shelf : starting from a grasped bottle (Phase 2),
 #                           place it on top of the shelf.
 
-run_pybullet_demos: true
+run_pybullet_demos: false
 pybullet_demos_gui: false     # set true to also open each demo in a GUI pass
 pybullet_demos_save_gif: true # save visualization/gifs/pybullet_<demo>_<planner>.gif
-pybullet_demos: ['UR10_grasp_can']
+pybullet_demos: ['UR10_pick_place_drill']
 # pybullet_demos:
 #   - UR10_grasp_can
 #   - UR10_pick_place_can
 #   - UR10_pick_shelf
 #   - UR10_pick_place_shelf
+#   - UR10_pick_place_drill
 

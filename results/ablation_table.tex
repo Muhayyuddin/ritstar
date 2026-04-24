@@ -3,15 +3,15 @@
 \centering
 \caption{Ablation study: mean path cost ($\pm$ std) per variant over 10 trials, 150 iterations each.}
 \label{tab:ablation}
-\begin{tabular}{@{}l ccccc@{}}
+\begin{tabular}{@{}l cccccc@{}}
 \toprule
-\textbf{Variant} & \textbf{3D Diagonal} & \textbf{UR10_pick_shelf} & \textbf{UR10_pick_place_shelf} & \textbf{UR10_grasp_can} & \textbf{UR10_pick_place_can} \\
+\textbf{Variant} & \textbf{3D Diagonal} & \textbf{UR10_pick_shelf} & \textbf{UR10_pick_place_can} & \textbf{UR10_grasp_can} & \textbf{UR10_pick_place_can} & \textbf{UR10_pick_place_drill} \\
 \midrule
-RIT* (full) & 2.364 $\pm$ 0.051 & 8.705 $\pm$ 0.982 & 3.808 $\pm$ 2.911 & 2.418 $\pm$ 0.856 & 1.837 $\pm$ 0.290 \\
-w/o Riem.\ samp. & 2.331 $\pm$ 0.058 & 8.703 $\pm$ 0.983 & 3.594 $\pm$ 2.761 & 2.458 $\pm$ 0.883 & 1.847 $\pm$ 0.254 \\
-w/o cascading & --- & --- & --- & --- & --- \\
-w/o CARM & 2.110 $\pm$ 0.007 & 2.500 $\pm$ 0.231 & 0.716 $\pm$ 0.080 & 2.116 $\pm$ 0.150 & 1.936 $\pm$ 0.241 \\
-w/o smoothing & 2.383 $\pm$ 0.053 & 8.879 $\pm$ 0.948 & 4.442 $\pm$ 2.408 & 4.915 $\pm$ 1.086 & 4.970 $\pm$ 0.932 \\
+RIT* (full) & 2.364 $\pm$ 0.051 & 8.705 $\pm$ 0.982 & 1.794 $\pm$ 0.553 & 2.052 $\pm$ 0.228 & 1.794 $\pm$ 0.553 & 1.632 $\pm$ 0.444 \\
+w/o Riem.\ samp. & 2.331 $\pm$ 0.058 & 8.703 $\pm$ 0.983 & 1.813 $\pm$ 0.512 & 2.026 $\pm$ 0.181 & 1.813 $\pm$ 0.512 & 1.662 $\pm$ 0.457 \\
+w/o cascading & --- & --- & --- & --- & --- & --- \\
+w/o CARM & 2.110 $\pm$ 0.007 & 2.500 $\pm$ 0.231 & 1.757 $\pm$ 0.424 & 2.121 $\pm$ 0.237 & 1.757 $\pm$ 0.424 & 1.491 $\pm$ 0.101 \\
+w/o smoothing & 2.383 $\pm$ 0.053 & 8.879 $\pm$ 0.948 & 4.763 $\pm$ 1.294 & 4.263 $\pm$ 1.016 & 4.763 $\pm$ 1.294 & 4.909 $\pm$ 1.141 \\
 \bottomrule
 \end{tabular}
 \end{table}

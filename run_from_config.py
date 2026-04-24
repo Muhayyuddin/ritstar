@@ -751,9 +751,40 @@ def _save_gif(env_name, env_fn, dim_tag):
         animate_tree_growth(env_name, env_fn, f'config_{safe}',
                             max_iterations=80, batch_size=100,
                             frame_every=2, fps=8)
-        animate_tree_growth_carm(env_name, env_fn, f'config_{safe}',
-                                 max_iterations=80, batch_size=100,
-                                 frame_every=2, fps=8)
+        carm_result = animate_tree_growth_carm(env_name, env_fn, f'config_{safe}',
+                                              max_iterations=80, batch_size=100,
+                                              frame_every=2, fps=8)
+        # Re-draw the RIT* tree image in the standard green-tree style
+        # (white background, green edges, red path) but using the CARM
+        # planner's better path, so it matches the GIF's final frame.
+        if carm_result and len(carm_result) == 3:
+            _, _, final_snap = carm_result
+            _carm_env = env_fn()   # (coll, _, metric, xs, xg, bounds)
+            _xs, _xg, _bounds = _carm_env[3], _carm_env[4], _carm_env[5]
+            from rit_star.visualize import _draw_obstacles_2d
+            obs_key = _ENV_OBSTACLE_KEY.get(env_name, '')
+            fig_t, ax_t = plt.subplots(figsize=(7, 7))
+            ax_t.set_xlim(_bounds[0])
+            ax_t.set_ylim(_bounds[1])
+            ax_t.set_aspect('equal')
+            _draw_obstacles_2d(ax_t, obs_key)
+            if final_snap.get('edges'):
+                for pv, cv in final_snap['edges']:
+                    ax_t.plot([pv[0], cv[0]], [pv[1], cv[1]],
+                              color='green', lw=0.8, alpha=0.6, zorder=2)
+            carm_path = final_snap.get('path')
+            if carm_path and len(carm_path) > 1:
+                pp = np.array(carm_path)
+                ax_t.plot(pp[:, 0], pp[:, 1], color='red', lw=3.5, zorder=4)
+            ax_t.plot(*_xs, 'ko', ms=10, zorder=5)
+            ax_t.plot(*_xg, 'k^', ms=10, zorder=5)
+            ax_t.set_xlabel('x₁', fontsize=14)
+            ax_t.set_ylabel('x₂', fontsize=14)
+            ax_t.tick_params(axis='both', labelsize=12)
+            rit_tree = os.path.join(IMAGES_DIR, f'config_{safe}_rit_tree.png')
+            fig_t.savefig(rit_tree, dpi=150, bbox_inches='tight')
+            plt.close(fig_t)
+            print(f'        Updated {rit_tree} with CARM path (green-tree style)')
     elif dim_tag == '3d':
         from visualization_util.visualize_riemannian import (
             animate_3d_env, animate_3d_env_carm,
@@ -1016,16 +1047,18 @@ def run_benchmark(cfg: dict):
 # Registry of 6-D GUI demos. Key = short name used in config;
 # value = (script filename, short description for the log).
 PYBULLET_DEMO_REGISTRY = {
-    'UR10_grasp_can':        ('UR10_grasp_can.py',
-                              'Top-down grasp of can next to kraft box wall'),
-    'UR10_pick_place_can':   ('UR10_pick_place_can.py',
-                              'Pick-and-place can over the wall'),
-    'UR10_pick_shelf':       ('UR10_pick_shelf.py',
-                              'Side-grasp mustard bottle from shelf'),
-    'UR10_pick_place_shelf': ('UR10_pick_place_shelf.py',
-                              'Place grasped bottle on top of shelf'),
-    'test_env':              ('test_env.py',
-                              'Static shelf scene — arm held at fixed q'),
+    'UR10_grasp_can':          ('UR10_grasp_can.py',
+                                'Top-down grasp of can next to kraft box wall'),
+    'UR10_pick_place_can':     ('UR10_pick_place_can.py',
+                                'Pick-and-place can over the wall'),
+    'UR10_pick_shelf':         ('UR10_pick_shelf.py',
+                                'Side-grasp mustard bottle from shelf'),
+    'UR10_pick_place_shelf':   ('UR10_pick_place_shelf.py',
+                                'Place grasped bottle on top of shelf'),
+    'UR10_pick_place_drill':   ('UR10_pick_place_drill.py',
+                                'Pick power drill by handle and carry over wall'),
+    'test_env':                ('test_env.py',
+                                'Static shelf scene — arm held at fixed q'),
 }
 
 

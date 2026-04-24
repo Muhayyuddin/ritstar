@@ -28,7 +28,7 @@ from rit_star.metric import DiagonalAnisotropicMetric
 
 # Fast inertia-based diagonal metric (no PyBullet calls per evaluation)
 _UR10E_INERTIAS = np.array([7.369, 13.051, 3.989, 2.1, 1.98, 0.615])
-_UR10E_WEIGHTS = (_UR10E_INERTIAS / _UR10E_INERTIAS.max()).tolist()
+_UR10E_WEIGHTS = (_UR10E_INERTIAS / _UR10E_INERTIAS.min()).tolist()
 
 # ═══════════════════════════════════════════════════════════════════════
 # Physical constants (all in metres)

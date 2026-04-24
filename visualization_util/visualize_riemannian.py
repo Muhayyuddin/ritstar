@@ -775,7 +775,7 @@ def animate_tree_growth_carm(env_name, env_fn, save_prefix,
 
     del anim, fig, fig2, snapshots, planner
     gc.collect()
-    return gif_path, png_path
+    return gif_path, png_path, final
 
 
 def animate_3d_surface_tree(env_name, env_fn, save_prefix,
