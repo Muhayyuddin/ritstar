@@ -378,9 +378,11 @@ class MetricFieldCache:
         # (GL points cluster near endpoints, so uniform checks fill gaps)
         n_extra = max(n_checks, min(n_checks * 5, int(np.ceil(length / 0.02))))
         inv_n = 1.0 / n_extra
+        # Precompute skip mask once (avoids a Python generator per iteration)
+        gl_ts_arr = _GL_TS_10  # shape (10,)
         for i in range(n_extra + 1):
             t = i * inv_n
-            if any(abs(t - tc) < 0.02 for tc in checked_ts):
+            if np.any(np.abs(gl_ts_arr - t) < 0.02):
                 continue
             if not collision_free(x + t * diff):
                 return np.inf, False
@@ -440,9 +442,10 @@ class MetricFieldCache:
 
         n_extra = max(n_checks, min(n_checks * 5, int(np.ceil(length / 0.02))))
         inv_n = 1.0 / n_extra
+        gl_ts_arr = _GL_TS_10
         for i in range(n_extra + 1):
             t = i * inv_n
-            if any(abs(t - tc) < 0.02 for tc in checked_ts):
+            if np.any(np.abs(gl_ts_arr - t) < 0.02):
                 continue
             pt = x + t * diff
             if not collision_free(pt):

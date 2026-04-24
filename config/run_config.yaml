@@ -54,7 +54,7 @@
 
 planners:      ['RIT*', 'Informed RRT*', 'BIT*', 'AIT*', 'EIT*', 'APT*']
 #environments:  ['random_world', '3D Diagonal', 'UR10_pick_place_drill']
-environments:  ['UR10_pick_place_can']
+environments:  [2D]
 #['random_world','dividing_wall', '3D Diagonal','3D Box Field','UR10_pick_shelf','UR10_pick_place_shelf', 'UR10_grasp_can','UR10_pick_place_can','UR10_pick_place_drill']
 #'3D Diagonal','3D Box Field']
 

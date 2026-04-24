@@ -24,7 +24,8 @@ import numpy as np
 from scipy.spatial import KDTree
 from typing import Callable, List, Optional, Tuple
 
-from .metric import RiemannianMetric, DiagonalAnisotropicMetric, EuclideanMetric
+from .metric import (RiemannianMetric, DiagonalAnisotropicMetric,
+                     EuclideanMetric, ObstacleInflatedMetric)
 from .metric import CollisionAdaptiveMetric
 from .geodesic import GeodesicComputer, diagonal_geodesic
 from .informed_set import RiemannianInformedSet, EuclideanInformedSet, volume_ratio_bound
@@ -77,6 +78,14 @@ def riemannian_edge_cost(x: np.ndarray, y: np.ndarray,
     if isinstance(metric, DiagonalAnisotropicMetric):
         w = metric._weights
         return float(np.sqrt(diff @ (w * diff)))
+
+    # Fast path: conformal (isotropic) spatially-varying metric G(x) = s(x)·I
+    # cost = ||diff|| · ∫₀¹ sqrt(s(x(t))) dt
+    # Evaluate all 10 quadrature points at once via vectorised _scale_batch.
+    if isinstance(metric, ObstacleInflatedMetric):
+        pts = x[None, :] + np.outer(_GL_TS, diff)  # (10, d)
+        scales = metric._scale_batch(pts)           # (10,) scalar field values
+        return float(np.linalg.norm(diff)) * float(np.dot(_GL_WS, np.sqrt(scales)))
 
     # General case: Gaussian quadrature
     cost = 0.0
@@ -413,6 +422,8 @@ class RITStar:
         # high-D are compensated.
         self._whiten_accept_rate = 1.0
         self._whiten_oversample = 1.0 + 0.15 * self.dim  # initial guess
+
+
 
     # ── public API ───────────────────────────────────────────────────
 
@@ -997,13 +1008,14 @@ class RITStar:
         mc = self._mc
         c_best = self.c_best
 
-        # Build KD-tree of full current tree (includes new nodes)
+        # Build KD-tree of the full current tree (including nodes added
+        # during _extend_tree this iteration) so rewiring can route
+        # through any new node from the same batch.
         coords = np.stack([v.x for v in self.vertices])
         if self._use_weighted_kd:
             kd = KDTree(coords * self._sqrt_w)
         else:
             kd = KDTree(coords)
-
         for nn in new_nodes:
             q = nn.x * self._sqrt_w if self._use_weighted_kd else nn.x
             idxs = kd.query_ball_point(q, r)

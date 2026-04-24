@@ -31,7 +31,7 @@ from typing import Callable, List, Optional, Tuple
 from .metric import EuclideanMetric, RiemannianMetric
 from .geodesic import GeodesicComputer
 from .informed_set import EuclideanInformedSet
-from .rit_star import Node, riemannian_edge_cost, check_edge_collision
+from .rit_star import Node, riemannian_edge_cost, check_edge_collision, _fast_edge_cost
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -193,6 +193,7 @@ class InformedRRTStar:
     # ── tree extension (RRT* style with batches) ─────────────────────
 
     def _extend_tree(self, samples):
+        n = len(self.vertices)
         coords = np.array([v.x for v in self.vertices])
         kd = KDTree(coords)
         r = self._compute_r(len(self.vertices) + len(samples))
@@ -209,10 +210,14 @@ class InformedRRTStar:
             best_cost = np.inf
             for idx in idxs:
                 v = self.vertices[idx]
+                # Euclidean lower bound — valid since G(x) ≥ I for all
+                # ObstacleInflatedMetric / DiagonalAnisotropic environments.
+                if v.cost + float(np.linalg.norm(v.x - s)) >= best_cost:
+                    continue
                 ec = riemannian_edge_cost(v.x, s, self.metric)
                 nc = v.cost + ec
                 if nc < best_cost:
-                    if check_edge_collision(v.x, s, self.collision_free):
+                    if check_edge_collision(v.x, s, self.collision_free, n_checks=10):
                         best_cost = nc
                         best_parent = v
             if best_parent is None:
@@ -249,10 +254,12 @@ class InformedRRTStar:
                 v = self.vertices[idx]
                 if v is best_parent or v is self.start_node:
                     continue
+                if nn.cost + float(np.linalg.norm(nn.x - v.x)) >= v.cost:
+                    continue
                 ec = riemannian_edge_cost(nn.x, v.x, self.metric)
                 nc = nn.cost + ec
                 if nc < v.cost:
-                    if check_edge_collision(nn.x, v.x, self.collision_free):
+                    if check_edge_collision(nn.x, v.x, self.collision_free, n_checks=10):
                         if v.parent is not None and v in v.parent.children:
                             v.parent.children.remove(v)
                         v.parent = nn
@@ -466,15 +473,7 @@ class BITStar:
     # ── edge-priority processing ─────────────────────────────────────
 
     def _process_batch(self, samples):
-        """BIT*-style edge queue processing.
-
-        Builds a priority queue of candidate edges (v, x) ordered by
-        f(e) = g_T(v) + ĉ(v,x) + ĥ(x), then processes edges in order.
-
-        Uses both r-disc and k-nearest connection strategies for
-        connectivity.  Each batch is independent — no sample
-        accumulation across batches.
-        """
+        """BIT*-style edge queue processing."""
         free_samples = [s for s in samples if self.collision_free(s)]
         if not free_samples:
             return
@@ -486,14 +485,18 @@ class BITStar:
 
         n_tree = len(self.vertices)
 
+        # Pre-compute goal/start distances for ALL free samples (vectorised).
+        free_pts = np.array(free_samples)                       # (n, d)
+        h_goal  = np.linalg.norm(free_pts - self.x_goal, axis=1)  # (n,)
+        h_start = np.linalg.norm(free_pts - self.x_start, axis=1) # (n,)
+
         # Build edge queue: edges from tree vertices to free samples
         edge_queue = []
         _cnt = 0
         for si, s in enumerate(free_samples):
-            h_s = float(np.linalg.norm(s - self.x_goal))
+            h_s = float(h_goal[si])
             # f-value pre-filter
-            h_s_start = float(np.linalg.norm(s - self.x_start))
-            if self.c_best < np.inf and h_s_start + h_s >= self.c_best:
+            if self.c_best < np.inf and float(h_start[si]) + h_s >= self.c_best:
                 continue
             # Use both r-disc and k-nearest for connectivity
             idxs_r = kd.query_ball_point(s, r)
@@ -509,29 +512,37 @@ class BITStar:
                     c_hat = float(np.linalg.norm(v.x - s))
                     f_e = v.cost + c_hat + h_s
                     if f_e < self.c_best:
-                        heapq.heappush(edge_queue, (f_e, _cnt, v, s))
+                        heapq.heappush(edge_queue, (f_e, _cnt, v, si))
                         _cnt += 1
 
         # Process edges in f-value order
-        processed = set()
+        # Use index into free_samples instead of tuple keys to avoid np.round overhead.
+        processed = set()  # indices into free_samples
         vert_dict = {tuple(np.round(v.x, 8)): v for v in self.vertices}
         while edge_queue:
-            f_e, _, v, s = heapq.heappop(edge_queue)
+            f_e, _, v, si = heapq.heappop(edge_queue)
             if f_e >= self.c_best:
                 break
 
-            s_key = tuple(np.round(s, 8))
-            if s_key in processed:
+            if si in processed:
+                continue
+
+            s = free_samples[si]
+            h_s = float(h_goal[si])
+
+            # Euclidean lower bound check before expensive metric eval
+            euclid_cost = float(np.linalg.norm(v.x - s))
+            if v.cost + euclid_cost + h_s >= self.c_best and self.c_best < np.inf:
+                processed.add(si)
+                continue
+
+            if not check_edge_collision(v.x, s, self.collision_free, n_checks=10):
                 continue
 
             ec = riemannian_edge_cost(v.x, s, self.metric)
             new_cost = v.cost + ec
-            h_s = float(np.linalg.norm(s - self.x_goal))
 
             if new_cost + h_s >= self.c_best:
-                continue
-
-            if not check_edge_collision(v.x, s, self.collision_free):
                 continue
 
             is_goal = np.allclose(s, self.x_goal, atol=1e-8)
@@ -547,10 +558,11 @@ class BITStar:
                     self.goal_node.f_value = new_cost
                     v.children.append(self.goal_node)
                     self.c_best = new_cost
-                processed.add(s_key)
+                processed.add(si)
                 continue
 
             # Check if sample already in tree (rewire)
+            s_key = tuple(np.round(s, 8))
             existing = vert_dict.get(s_key)
 
             if existing is not None:
@@ -577,7 +589,7 @@ class BITStar:
                     nn.f_value = new_cost
                     self.c_best = new_cost
 
-            processed.add(s_key)
+            processed.add(si)
 
             if self.goal_node is not None:
                 self.c_best = self.goal_node.cost
@@ -607,7 +619,7 @@ class BITStar:
                 if nc < v.cost:
                     if c_best < np.inf and nc + v.heuristic >= c_best:
                         continue
-                    if check_edge_collision(nn.x, v.x, self.collision_free):
+                    if check_edge_collision(nn.x, v.x, self.collision_free, n_checks=10):
                         if v.parent is not None and v in v.parent.children:
                             v.parent.children.remove(v)
                         v.parent = nn
@@ -809,6 +821,10 @@ class AITStar:
             for v in idxs:
                 if visited[v]:
                     continue
+                # Euclidean lower bound: skip if can't improve dist[v]
+                euclid_w = float(np.linalg.norm(all_pts[u] - all_pts[v]))
+                if d + euclid_w >= dist[v]:
+                    continue
                 w = riemannian_edge_cost(all_pts[u], all_pts[v], self.metric)
                 nd = d + w
                 if nd < dist[v]:
@@ -872,7 +888,7 @@ class AITStar:
             if v.cost + c_hat >= g_x:
                 continue
 
-            if not check_edge_collision(v.x, s, self.collision_free):
+            if not check_edge_collision(v.x, s, self.collision_free, n_checks=10):
                 continue
 
             ec = riemannian_edge_cost(v.x, s, self.metric)
@@ -1177,7 +1193,7 @@ class EITStar:
             if v.cost + c_hat >= g_x:
                 continue
 
-            if not check_edge_collision(v.x, s, self.collision_free):
+            if not check_edge_collision(v.x, s, self.collision_free, n_checks=10):
                 continue
 
             ec = riemannian_edge_cost(v.x, s, self.metric)
@@ -1312,8 +1328,8 @@ def _compute_r_apt(self, n_vertices, vol=None):
 
 def _extend_tree_apt(self, samples):
     """Shared extend-and-rewire logic (Informed RRT* style)."""
-    coords = np.array([v.x for v in self.vertices])
-    kd = KDTree(coords)
+    n = len(self.vertices)
+    kd = KDTree(np.array([v.x for v in self.vertices]))
     vol = self._eis.volume() if (self._eis is not None and self.c_best < np.inf) else None
     r = _compute_r_apt(self, len(self.vertices) + len(samples), vol)
 
@@ -1328,10 +1344,12 @@ def _extend_tree_apt(self, samples):
         best_parent, best_cost = None, np.inf
         for idx in idxs:
             v = self.vertices[idx]
+            if v.cost + float(np.linalg.norm(v.x - s)) >= best_cost:
+                continue
             ec = riemannian_edge_cost(v.x, s, self.metric)
             nc = v.cost + ec
             if nc < best_cost:
-                if check_edge_collision(v.x, s, self.collision_free):
+                if check_edge_collision(v.x, s, self.collision_free, n_checks=10):
                     best_cost = nc
                     best_parent = v
         if best_parent is None:
@@ -1368,10 +1386,12 @@ def _extend_tree_apt(self, samples):
             v = self.vertices[idx]
             if v is best_parent or v is self.start_node:
                 continue
+            if nn.cost + float(np.linalg.norm(nn.x - v.x)) >= v.cost:
+                continue
             ec = riemannian_edge_cost(nn.x, v.x, self.metric)
             nc = nn.cost + ec
             if nc < v.cost:
-                if check_edge_collision(nn.x, v.x, self.collision_free):
+                if check_edge_collision(nn.x, v.x, self.collision_free, n_checks=10):
                     if v.parent is not None and v in v.parent.children:
                         v.parent.children.remove(v)
                     v.parent = nn
