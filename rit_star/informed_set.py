@@ -22,6 +22,7 @@ from .metric import (
     DiagonalAnisotropicMetric,
     EuclideanMetric,
     ObstacleInflatedMetric,
+    CollisionAdaptiveMetric,
 )
 
 
@@ -464,6 +465,27 @@ def volume_ratio_bound(metric: RiemannianMetric,
     eigs = metric.eigenvalues(mid)
     eigs = np.maximum(eigs, 1e-30)
     lam_min = eigs[0]
+
+    if isinstance(metric, CollisionAdaptiveMetric):
+        # G_CARM(x) = s(x) * G_base(x).  Volume ratio composes:
+        #   Vol(I_CARM)/Vol(I_E) = ratio_base * (s_min/s_max)^(d/2)
+        # ratio_base captures the base-metric anisotropy; the scale term
+        # captures the additional shrinkage from learned collision costs.
+        base_ratio = volume_ratio_bound(metric.base, x_start, x_goal,
+                                        dim, c_best=c_best)
+        if not metric._collision_points:
+            return float(base_ratio)
+        n_pts = 11
+        xs = np.asarray(x_start, dtype=float)
+        xg = np.asarray(x_goal, dtype=float)
+        scales = [
+            metric._collision_scale(xs + (i / (n_pts - 1)) * (xg - xs))
+            for i in range(n_pts)
+        ]
+        s_min = min(scales)
+        s_max = max(scales)
+        carm_factor = (s_min / max(s_max, 1e-30)) ** (dim / 2.0)
+        return float(base_ratio * carm_factor)
 
     if isinstance(metric, ObstacleInflatedMetric):
         # Conformal: eigenvalues are all equal at each point.

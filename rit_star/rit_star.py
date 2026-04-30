@@ -775,26 +775,22 @@ class RITStar:
         return min(r_R, diag * 0.5)
 
     def _riemannian_informed_volume(self) -> float:
-        """Compute mu_R(I_R) = integral_{I_R} sqrt(det(G(x))) dx.
+        """Compute Vol(I_R) — the Lebesgue measure of the Riemannian informed set.
 
-        For constant metrics: sqrt(det(G)) * Vol_euclid(I_R).
-        For spatially-varying: analytical bound from Theorem 1
-        combined with the Euclidean ellipsoid volume.
+        Theorem 1: Vol(I_R) = volume_ratio_bound * Vol(I_E), where
+        Vol(I_R) <= Vol(I_E) whenever G succeq I.
+        This is the quantity that drives the connection radius (Eq. radius).
         """
         euclid_vol = self._quick_volume()
+        # G = I: Riemannian set is identical to Euclidean set
         if isinstance(self.metric, EuclideanMetric):
             return euclid_vol
-        if isinstance(self.metric, DiagonalAnisotropicMetric):
-            sqrt_det = float(np.sqrt(np.prod(self.metric._weights)))
-            return sqrt_det * euclid_vol
-        # Spatially-varying: use Vol(I_R) = volume_ratio * Vol(I_E)
-        # as a practical estimate via Theorem 1.
+        # All other metrics: use analytical ratio from Theorem 1
+        # Pass c_best so the eccentricity correction is included
+        c = self.c_best if self.c_best < np.inf else None
         vr = volume_ratio_bound(self.metric, self.x_start,
-                                self.x_goal, self.dim)
-        # Riemannian volume ~ sqrt_det_avg * Euclidean volume of I_R
-        mid = 0.5 * (self.x_start + self.x_goal)
-        sqrt_det_mid = self.metric.sqrt_det_G(mid)
-        return sqrt_det_mid * vr * euclid_vol
+                                self.x_goal, self.dim, c_best=c)
+        return vr * euclid_vol
 
     def _riemannian_workspace_volume(self) -> float:
         """Riemannian volume of the workspace.
@@ -1110,7 +1106,16 @@ class RITStar:
                                     resolution=self._cache_res,
                                     collision_step_size=self._collision_step_size,
                                     min_collision_checks=_min_checks)
-        # Update heuristics for all vertices
+        # Re-propagate costs from root so that g-values reflect the
+        # updated CARM metric.  Edges that now pass through inflated
+        # (near-obstacle) regions become more expensive, raising f-values
+        # above c_best and enabling tighter Riemannian-set pruning.
+        self.start_node.cost = 0.0
+        self.start_node.heuristic = self._mc.heuristic(self.x_start, self.x_goal)
+        self.start_node.f_value = self.start_node.heuristic
+        self._propagate_cost(self.start_node)
+        # Update heuristics for any vertices not yet reached by propagation
+        # (disconnected subtrees, goal node)
         for v in self.vertices:
             v.heuristic = self._mc.heuristic(v.x, self.x_goal)
             v.f_value = v.cost + v.heuristic
@@ -1338,8 +1343,7 @@ class RITStar:
                 (np.sqrt(max(self.c_best**2 -
                  float(np.linalg.norm(self.x_goal - self.x_start))**2, 0.0))
                  / 2.0) ** (self.dim - 1)
-            # Theorem 1: analytical volume ratio Vol(I_R)/Vol(I_E)
-            # Pass c_best so the eccentricity correction is included
+            # Theorem 1: Vol(I_R)/Vol(I_E) — same call used by radius formula
             analytical_vr = volume_ratio_bound(
                 self.metric, self.x_start, self.x_goal, self.dim,
                 c_best=self.c_best)

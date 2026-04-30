@@ -1,31 +1,31 @@
 variant,env,cost_mean,cost_std,time_mean_s,n_success
-full,3D Diagonal,2.347012,0.047605,13.4991,10
-full,UR10_pick_shelf,7.219924,1.953134,14.3547,10
-full,UR10_pick_place_can,1.758505,0.457881,11.5326,20
-full,UR10_grasp_can,2.030651,0.224324,13.0490,10
-full,UR10_pick_place_can,1.758505,0.457881,11.5326,20
-full,UR10_pick_place_drill,1.783554,0.539379,11.2194,10
-no_riem_samp,3D Diagonal,2.342252,0.071982,11.4027,10
-no_riem_samp,UR10_pick_shelf,7.221523,1.957132,16.7508,10
-no_riem_samp,UR10_pick_place_can,1.831148,0.480266,15.3753,20
-no_riem_samp,UR10_grasp_can,2.058710,0.259292,28.0701,10
-no_riem_samp,UR10_pick_place_can,1.831148,0.480266,15.3753,20
-no_riem_samp,UR10_pick_place_drill,1.796876,0.538594,13.7175,10
+full,3D Diagonal,2.318937,0.032570,9.8629,10
+full,UR10_pick_shelf,2.625187,0.266274,21.0967,10
+full,UR10_pick_place_can,1.696362,0.395977,12.7753,20
+full,UR10_grasp_can,2.183813,0.369982,13.5422,10
+full,UR10_pick_place_can,1.696362,0.395977,12.7753,20
+full,UR10_pick_place_drill,1.488941,0.081994,14.4477,10
+no_riem_samp,3D Diagonal,2.475982,0.183788,10.1244,10
+no_riem_samp,UR10_pick_shelf,2.347380,0.267907,147.5322,10
+no_riem_samp,UR10_pick_place_can,1.732444,0.402722,17.1024,20
+no_riem_samp,UR10_grasp_can,2.047010,0.249537,65.8759,10
+no_riem_samp,UR10_pick_place_can,1.732444,0.402722,17.1024,20
+no_riem_samp,UR10_pick_place_drill,1.464075,0.071048,80.3699,10
 no_cascading,3D Diagonal,inf,0.000000,0.0000,0
 no_cascading,UR10_pick_shelf,inf,0.000000,0.0000,0
 no_cascading,UR10_pick_place_can,inf,0.000000,0.0000,0
 no_cascading,UR10_grasp_can,inf,0.000000,0.0000,0
 no_cascading,UR10_pick_place_can,inf,0.000000,0.0000,0
 no_cascading,UR10_pick_place_drill,inf,0.000000,0.0000,0
-no_carm,3D Diagonal,2.110786,0.006908,3.0072,10
-no_carm,UR10_pick_shelf,2.506708,0.301438,21.4407,10
-no_carm,UR10_pick_place_can,1.690861,0.371122,2.1188,20
-no_carm,UR10_grasp_can,2.108625,0.261514,2.9576,10
-no_carm,UR10_pick_place_can,1.690861,0.371122,2.1188,20
-no_carm,UR10_pick_place_drill,1.478589,0.058912,2.5934,10
-no_smoothing,3D Diagonal,2.370073,0.049106,13.3944,10
-no_smoothing,UR10_pick_shelf,7.414724,1.813900,12.1869,10
-no_smoothing,UR10_pick_place_can,4.563680,1.293633,10.8671,20
-no_smoothing,UR10_grasp_can,4.301564,1.028189,11.6876,10
-no_smoothing,UR10_pick_place_can,4.563680,1.293633,10.8671,20
-no_smoothing,UR10_pick_place_drill,4.749961,1.158081,10.6870,10
+no_carm,3D Diagonal,2.185777,0.041328,0.9312,10
+no_carm,UR10_pick_shelf,2.562770,0.221932,21.2613,10
+no_carm,UR10_pick_place_can,1.860552,0.489687,1.9429,20
+no_carm,UR10_grasp_can,2.183810,0.369984,2.7820,10
+no_carm,UR10_pick_place_can,1.860552,0.489687,1.9429,20
+no_carm,UR10_pick_place_drill,1.484409,0.085714,1.3948,10
+no_smoothing,3D Diagonal,2.443606,0.035338,9.6227,10
+no_smoothing,UR10_pick_shelf,2.728846,0.222015,19.8410,10
+no_smoothing,UR10_pick_place_can,3.660294,0.971561,11.8686,20
+no_smoothing,UR10_grasp_can,3.544684,0.648340,11.4553,10
+no_smoothing,UR10_pick_place_can,3.660294,0.971561,11.8686,20
+no_smoothing,UR10_pick_place_drill,1.537266,0.057886,13.3101,10
