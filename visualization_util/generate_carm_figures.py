@@ -421,15 +421,15 @@ def fig3_carm_evolution():
     planner = RITStar(
         xs, xg, bounds, coll, euclid,
         geodesic_tier='diagonal', batch_size=80,
-        max_iterations=120, random_seed=42,
+        max_iterations=120, random_seed=60,
         adaptive_metric=True,
-        carm_sigma=0.08, carm_alpha=6.0,
-        carm_rebuild_interval=10)
+        carm_sigma=0.0815, carm_alpha=8.0,
+        carm_rebuild_interval=15)
 
-    snapshot_iters = [10, 30, 60, 110]
+    snapshot_iters = [5, 20, 50, 100]
     snapshots = {}
 
-    res = 180
+    res = 200
     xx = np.linspace(0, 1, res)
     yy = np.linspace(0, 1, res)
     XX, YY = np.meshgrid(xx, yy)
@@ -499,29 +499,18 @@ def fig3_carm_evolution():
 
         _draw_start_goal(ax, xs, xg, ms=8)
 
-        c_str = f'{snap["c_best"]:.3f}' if np.isfinite(snap['c_best']) else '∞'
-        ax.set_title(f'Iteration {it}\n'
-                     f'{snap["n_coll"]} collisions | cost = {c_str}',
-                     fontsize=10, fontweight='bold')
+        ax.set_title(f'Iter {it}',
+                     fontsize=13, fontweight='bold')
         _set_axes(ax)
 
-        if idx == 0:
-            ax.text(0.05, 0.92, 'Few collisions\n→ near-Euclidean',
-                    transform=ax.transAxes, fontsize=8, va='top',
-                    bbox=dict(fc='white', ec='gray', alpha=0.85, boxstyle='round,pad=0.3'))
-        elif idx == 3:
-            ax.text(0.05, 0.92, 'Dense feedback\n→ near-oracle',
-                    transform=ax.transAxes, fontsize=8, va='top',
-                    bbox=dict(fc='white', ec=CARM_COLOR, alpha=0.85, boxstyle='round,pad=0.3'))
+
 
     # Colorbar
     cbar_ax = fig.add_axes([0.93, 0.15, 0.012, 0.7])
     cb = fig.colorbar(im, cax=cbar_ax)
-    cb.set_label('CARM scale $s(x)$', fontsize=10)
+    cb.set_label('CARM scale $s(x)$', fontsize=11)
 
-    fig.suptitle('CARM learns progressively: collision feedback → obstacle-aware metric',
-                 fontsize=14, fontweight='bold', y=1.04)
-    fig.subplots_adjust(wspace=0.15, right=0.91)
+    fig.subplots_adjust(wspace=0.18, right=0.91)
 
     path_out = os.path.join(PLOTS_DIR, 'fig_carm_evolution.pdf')
     fig.savefig(path_out, dpi=300, bbox_inches='tight')
@@ -1011,6 +1000,310 @@ def fig7_multi_env():
     fig.savefig(path_out.replace('.pdf', '.png'), dpi=200, bbox_inches='tight')
     print(f'  → {path_out}')
     plt.close(fig)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  UTILITY: Draw environments without running the planner
+# ══════════════════════════════════════════════════════════════════════════════
+def _draw_box_3d(ax, lo, hi, color=OBSTACLE_COLOR, alpha=0.35):
+    """Draw a 3-D axis-aligned box on a Axes3D."""
+    from mpl_toolkits.mplot3d.art3d import Poly3DCollection
+    x0, y0, z0 = lo[0], lo[1], lo[2]
+    x1, y1, z1 = hi[0], hi[1], hi[2]
+    faces = [
+        [[x0,y0,z0],[x1,y0,z0],[x1,y1,z0],[x0,y1,z0]],
+        [[x0,y0,z1],[x1,y0,z1],[x1,y1,z1],[x0,y1,z1]],
+        [[x0,y0,z0],[x1,y0,z0],[x1,y0,z1],[x0,y0,z1]],
+        [[x0,y1,z0],[x1,y1,z0],[x1,y1,z1],[x0,y1,z1]],
+        [[x0,y0,z0],[x0,y1,z0],[x0,y1,z1],[x0,y0,z1]],
+        [[x1,y0,z0],[x1,y1,z0],[x1,y1,z1],[x1,y0,z1]],
+    ]
+    poly = Poly3DCollection(faces, alpha=alpha,
+                            facecolor=color, edgecolor='white', linewidth=0.4)
+    ax.add_collection3d(poly)
+
+
+def _draw_sphere_3d(ax, centre, radius, color=OBSTACLE_COLOR, alpha=0.30):
+    """Draw a 3-D sphere on a Axes3D."""
+    u = np.linspace(0, 2 * np.pi, 24)
+    v = np.linspace(0, np.pi, 14)
+    x = centre[0] + radius * np.outer(np.cos(u), np.sin(v))
+    y = centre[1] + radius * np.outer(np.sin(u), np.sin(v))
+    z = centre[2] + radius * np.outer(np.ones_like(u), np.cos(v))
+    ax.plot_surface(x, y, z, color=color, alpha=alpha, linewidth=0,
+                    antialiased=True, rasterized=True)
+
+
+def _draw_env_2d_panel(ax, coll, xs, xg, bounds, title, metric=None, res=200):
+    """Render a single 2D environment on *ax* by rasterising the collision checker.
+    If metric is provided and has a _scale / sqrt_det_G, show cost field as background."""
+    lo = np.array([b[0] for b in bounds])
+    hi = np.array([b[1] for b in bounds])
+    xx = np.linspace(lo[0], hi[0], res)
+    yy = np.linspace(lo[1], hi[1], res)
+    XX, YY = np.meshgrid(xx, yy)
+    pts = np.column_stack([XX.ravel(), YY.ravel()])
+
+    free = np.array([coll(p) for p in pts], dtype=float).reshape(res, res)
+
+    # If the environment is a pure cost field (no hard obstacles), show cost heatmap
+    if metric is not None and np.all(free > 0):
+        try:
+            if hasattr(metric, 'sqrt_det_G'):
+                cost = np.array([metric.sqrt_det_G(p) for p in pts],
+                                dtype=float).reshape(res, res)
+                ax.contourf(XX, YY, cost, levels=25, cmap='YlOrRd', alpha=0.85)
+        except Exception:
+            pass
+    else:
+        # obstacle map: obstacle = dark, free = white
+        ax.imshow(1 - free, origin='lower',
+                  extent=[float(lo[0]), float(hi[0]), float(lo[1]), float(hi[1])],
+                  cmap='Greys', vmin=0, vmax=1,
+                  aspect='equal', interpolation='nearest')
+
+    ax.plot(*xs, 's', color=START_COLOR, ms=9, zorder=5,
+            markeredgecolor='white', markeredgewidth=1.2)
+    ax.plot(*xg, '*', color=GOAL_COLOR, ms=11, zorder=5,
+            markeredgecolor='white', markeredgewidth=0.8)
+    ax.set_title(title, fontsize=11, fontweight='bold', pad=5)
+    ax.set_xlim(float(lo[0]), float(hi[0]))
+    ax.set_ylim(float(lo[1]), float(hi[1]))
+    ax.set_xlabel('$x_1$', fontsize=9)
+    ax.set_ylabel('$x_2$', fontsize=9)
+    ax.tick_params(labelsize=8)
+
+
+def draw_environments(dim='2D'):
+    """Draw all 2D or 3D environments with obstacles, no planner run.
+
+    Rasterizes each environment on a grid (2D) or draws obstacle geometry
+    in 3D, then saves PNG files (one per row of environments).
+
+    Parameters
+    ----------
+    dim : '2D' or '3D'
+    """
+    from rit_star.environments import (
+        env_2d_diagonal_anisotropic, env_2d_obstacle_inflated,
+        env_2d_joint_arm, env_2d_narrow_passage, env_2d_maze,
+        env_2d_bug_trap, env_2d_random_forest, env_2d_terrain,
+        env_2d_hyper_dense, env_2d_random_world, env_2d_dividing_wall,
+        env_3d_diagonal_anisotropic, env_3d_sphere_field,
+        env_3d_narrow_passage, env_3d_dense_labyrinth,
+        env_3d_anisotropic_corridor, env_3d_obstacle_gauntlet,
+        env_3d_box_field,
+    )
+
+    dim = dim.upper()
+    print(f'=== Drawing {dim} Environments ===')
+
+    if dim == '2D':
+        # All 2D environments grouped into rows of 5
+        envs_2d = [
+            ('Diagonal\nAnisotropic',  env_2d_diagonal_anisotropic),
+            ('Circular\nObstacles',    env_2d_obstacle_inflated),
+            ('Narrow\nPassage',        env_2d_narrow_passage),
+            ('S-Maze',                 env_2d_maze),
+            ('Bug Trap',               env_2d_bug_trap),
+            ('Random\nForest',         env_2d_random_forest),
+            ('Terrain\n(cost field)',  env_2d_terrain),
+            ('Hyper-Dense',            env_2d_hyper_dense),
+            ('Robot Arm\n(C-space)',   env_2d_joint_arm),
+            ('Random\nWorld',          env_2d_random_world),
+            ('Dividing\nWall',         env_2d_dividing_wall),
+        ]
+        n_cols = 5
+        n_rows = int(np.ceil(len(envs_2d) / n_cols))
+        fig, axes = plt.subplots(n_rows, n_cols,
+                                 figsize=(4.4 * n_cols, 4.6 * n_rows))
+        axes = np.array(axes).reshape(n_rows, n_cols)
+
+        for idx, (title, env_fn) in enumerate(envs_2d):
+            row, col = divmod(idx, n_cols)
+            ax = axes[row, col]
+            coll, _, metric, xs, xg, bounds = env_fn()
+            _draw_env_2d_panel(ax, coll, xs, xg, bounds, title, metric=metric)
+
+        # Hide unused subplots
+        for idx in range(len(envs_2d), n_rows * n_cols):
+            row, col = divmod(idx, n_cols)
+            axes[row, col].set_visible(False)
+
+        fig.legend(
+            handles=[
+                plt.Line2D([0], [0], marker='s', color='w',
+                           markerfacecolor=START_COLOR, markersize=9,
+                           markeredgecolor='white', label='Start'),
+                plt.Line2D([0], [0], marker='*', color='w',
+                           markerfacecolor=GOAL_COLOR, markersize=11,
+                           markeredgecolor='white', label='Goal'),
+            ],
+            loc='lower center', ncol=2, fontsize=10,
+            bbox_to_anchor=(0.5, -0.02), framealpha=0.9,
+        )
+        fig.suptitle('2D Planning Environments', fontsize=16, fontweight='bold', y=1.01)
+        fig.tight_layout()
+        path_out = os.path.join(PLOTS_DIR, 'environments_2d.png')
+        fig.savefig(path_out, dpi=200, bbox_inches='tight')
+        print(f'  → {path_out}')
+        plt.close(fig)
+
+    elif dim == '3D':
+        from mpl_toolkits.mplot3d import Axes3D  # noqa: F401
+
+        # All 3D environments
+        envs_3d = [
+            # (title, draw_fn) — each draw_fn receives (ax)
+        ]
+
+        fig = plt.figure(figsize=(18, 11))
+        n_cols, n_rows = 4, 2
+        subplot_idx = 1
+
+        # ── 1: 3D Diagonal Anisotropic ────────────────────────────
+        ax = fig.add_subplot(n_rows, n_cols, subplot_idx, projection='3d')
+        subplot_idx += 1
+        boxes_diag = [
+            (np.array([0.25, 0.0, 0.0]), np.array([0.35, 0.6, 1.0])),
+            (np.array([0.45, 0.4, 0.0]), np.array([0.55, 1.0, 1.0])),
+            (np.array([0.65, 0.0, 0.0]), np.array([0.75, 0.6, 0.6])),
+            (np.array([0.65, 0.0, 0.7]), np.array([0.75, 0.6, 1.0])),
+        ]
+        for lo, hi in boxes_diag:
+            _draw_box_3d(ax, lo, hi)
+        xs_d, xg_d = np.array([0.1, 0.5, 0.5]), np.array([0.9, 0.5, 0.5])
+        ax.scatter(*xs_d, marker='s', s=70, c=START_COLOR, depthshade=False, zorder=5)
+        ax.scatter(*xg_d, marker='*', s=120, c=GOAL_COLOR, depthshade=False, zorder=5)
+        ax.set_xlim(0, 1); ax.set_ylim(0, 1); ax.set_zlim(0, 1)
+        ax.set_xlabel('x', fontsize=11); ax.set_ylabel('y', fontsize=11); ax.set_zlabel('z', fontsize=11)
+        ax.set_title('3D Diagonal\nAnisotropic', fontsize=11, fontweight='bold', pad=4)
+
+        # ── 2: 3D Sphere Field ─────────────────────────────────────
+        ax = fig.add_subplot(n_rows, n_cols, subplot_idx, projection='3d')
+        subplot_idx += 1
+        r_obs = 0.22
+        offsets = np.array([-0.35, 0.35])
+        sphere_ctrs = [[sx, sy, sz]
+                       for sx in offsets for sy in offsets for sz in offsets]
+        sphere_ctrs.append([0.0, 0.0, 0.0])
+        for c in sphere_ctrs:
+            _draw_sphere_3d(ax, c, r_obs)
+        xs_s, xg_s = np.array([-0.9, 0.0, 0.0]), np.array([0.9, 0.0, 0.0])
+        ax.scatter(*xs_s, marker='s', s=70, c=START_COLOR, depthshade=False, zorder=5)
+        ax.scatter(*xg_s, marker='*', s=120, c=GOAL_COLOR, depthshade=False, zorder=5)
+        ax.set_xlim(-1, 1); ax.set_ylim(-1, 1); ax.set_zlim(-1, 1)
+        ax.set_xlabel('x', fontsize=11); ax.set_ylabel('y', fontsize=11); ax.set_zlabel('z', fontsize=11)
+        ax.set_title('3D Sphere\nField', fontsize=11, fontweight='bold', pad=4)
+
+        # ── 3: 3D Narrow Passage ───────────────────────────────────
+        ax = fig.add_subplot(n_rows, n_cols, subplot_idx, projection='3d')
+        subplot_idx += 1
+        _draw_box_3d(ax, [0.47, 0.0, 0.0], [0.53, 1.0, 1.0],
+                     color=OBSTACLE_COLOR, alpha=0.22)
+        theta = np.linspace(0, 2 * np.pi, 50)
+        hole_y = 0.5 + 0.09 * np.cos(theta)
+        hole_z = 0.5 + 0.09 * np.sin(theta)
+        for xw in [0.47, 0.53]:
+            ax.plot([xw] * 50, hole_y, hole_z, '-', color='#00CFFF', lw=1.8, alpha=0.9, zorder=6)
+        for i in range(0, 50, 7):
+            ax.plot([0.47, 0.53], [hole_y[i], hole_y[i]], [hole_z[i], hole_z[i]],
+                    '-', color='#00CFFF', lw=1.0, alpha=0.75, zorder=6)
+        xs_n, xg_n = np.array([0.1, 0.5, 0.5]), np.array([0.9, 0.5, 0.5])
+        ax.scatter(*xs_n, marker='s', s=70, c=START_COLOR, depthshade=False, zorder=7)
+        ax.scatter(*xg_n, marker='*', s=120, c=GOAL_COLOR, depthshade=False, zorder=7)
+        ax.set_xlim(0, 1); ax.set_ylim(0, 1); ax.set_zlim(0, 1)
+        ax.set_xlabel('x', fontsize=11); ax.set_ylabel('y', fontsize=11); ax.set_zlabel('z', fontsize=11)
+        ax.set_title('3D Narrow Passage\n(cyan = hole)', fontsize=11, fontweight='bold', pad=4)
+
+        # ── 4: Dense Labyrinth ─────────────────────────────────────
+        ax = fig.add_subplot(n_rows, n_cols, subplot_idx, projection='3d')
+        subplot_idx += 1
+        lab_ctrs = np.array([
+            [-0.5,-0.5,-0.5],[0.2,-0.6,-0.3],[0.6,-0.4,-0.6],
+            [-0.3, 0.0, 0.0],[0.3, 0.1, 0.1],[0.0, 0.5, 0.0],
+            [-0.6, 0.3, 0.2],[0.6, 0.3,-0.1],[-0.4, 0.6, 0.5],
+            [ 0.2, 0.7, 0.4],[0.5, 0.5, 0.6],[-0.1,-0.2, 0.6],
+            [ 0.0, 0.0, 0.5],[-0.6,-0.3, 0.3],[0.5,-0.1, 0.4],
+        ])
+        for c in lab_ctrs:
+            _draw_sphere_3d(ax, c, 0.18, alpha=0.28)
+        xs_l, xg_l = np.array([-0.9,-0.9,-0.9]), np.array([0.9,0.9,0.9])
+        ax.scatter(*xs_l, marker='s', s=70, c=START_COLOR, depthshade=False, zorder=5)
+        ax.scatter(*xg_l, marker='*', s=120, c=GOAL_COLOR, depthshade=False, zorder=5)
+        ax.set_xlim(-1, 1); ax.set_ylim(-1, 1); ax.set_zlim(-1, 1)
+        ax.set_xlabel('x', fontsize=11); ax.set_ylabel('y', fontsize=11); ax.set_zlabel('z', fontsize=11)
+        ax.set_title('3D Dense\nLabyrinth', fontsize=11, fontweight='bold', pad=4)
+
+        # ── 5: Anisotropic Corridor ────────────────────────────────
+        ax = fig.add_subplot(n_rows, n_cols, subplot_idx, projection='3d')
+        subplot_idx += 1
+        corr_boxes = [
+            (np.array([0.28, 0.15, 0.0]), np.array([0.38, 1.0, 1.0])),
+            (np.array([0.62, 0.0, 0.0]), np.array([0.72, 0.85, 1.0])),
+            (np.array([0.38, 0.0, 0.35]), np.array([0.62, 0.15, 0.65])),
+            (np.array([0.38, 0.55, 0.35]), np.array([0.62, 0.85, 0.65])),
+        ]
+        for lo, hi in corr_boxes:
+            _draw_box_3d(ax, lo, hi)
+        xs_c, xg_c = np.array([0.1, 0.1, 0.5]), np.array([0.9, 0.9, 0.5])
+        ax.scatter(*xs_c, marker='s', s=70, c=START_COLOR, depthshade=False, zorder=5)
+        ax.scatter(*xg_c, marker='*', s=120, c=GOAL_COLOR, depthshade=False, zorder=5)
+        ax.set_xlim(0, 1); ax.set_ylim(0, 1); ax.set_zlim(0, 1)
+        ax.set_xlabel('x', fontsize=11); ax.set_ylabel('y', fontsize=11); ax.set_zlabel('z', fontsize=11)
+        ax.set_title('3D Anisotropic\nCorridor', fontsize=11, fontweight='bold', pad=18)
+
+        # ── 6: Obstacle Gauntlet ───────────────────────────────────
+        ax = fig.add_subplot(n_rows, n_cols, subplot_idx, projection='3d')
+        subplot_idx += 1
+        gaunt_ctrs = np.array([
+            [-0.6, 0.25, 0.0],[-0.2, 0.25, 0.0],[0.2, 0.25, 0.0],[0.6, 0.25, 0.0],
+            [-0.4,-0.25, 0.0],[0.0,-0.25, 0.0],[0.4,-0.25, 0.0],
+            [-0.1, 0.0, 0.30],[0.1, 0.0,-0.30],
+            [-0.7,-0.15, 0.25],[0.7, 0.15,-0.25],[0.0, 0.0, 0.0],
+        ])
+        for c in gaunt_ctrs:
+            _draw_sphere_3d(ax, c, 0.20, alpha=0.30)
+        xs_g, xg_g = np.array([-0.9, 0.0, 0.0]), np.array([0.9, 0.0, 0.0])
+        ax.scatter(*xs_g, marker='s', s=70, c=START_COLOR, depthshade=False, zorder=5)
+        ax.scatter(*xg_g, marker='*', s=120, c=GOAL_COLOR, depthshade=False, zorder=5)
+        ax.set_xlim(-1, 1); ax.set_ylim(-1, 1); ax.set_zlim(-1, 1)
+        ax.set_xlabel('x', fontsize=11); ax.set_ylabel('y', fontsize=11); ax.set_zlabel('z', fontsize=11)
+        ax.set_title('3D Obstacle\nGauntlet', fontsize=11, fontweight='bold', pad=18)
+
+        # ── 7: 3D Box Field ────────────────────────────────────────
+        ax = fig.add_subplot(n_rows, n_cols, subplot_idx, projection='3d')
+        subplot_idx += 1
+        box_field_boxes = [
+            (np.array([0.15, 0.15, 0.00]), np.array([0.35, 0.35, 0.45])),
+            (np.array([0.45, 0.00, 0.00]), np.array([0.65, 0.25, 0.35])),
+            (np.array([0.70, 0.30, 0.00]), np.array([0.90, 0.55, 0.30])),
+            (np.array([0.10, 0.50, 0.30]), np.array([0.30, 0.75, 0.60])),
+            (np.array([0.40, 0.40, 0.35]), np.array([0.60, 0.65, 0.65])),
+            (np.array([0.65, 0.55, 0.25]), np.array([0.85, 0.80, 0.55])),
+            (np.array([0.20, 0.20, 0.60]), np.array([0.45, 0.45, 0.85])),
+            (np.array([0.50, 0.60, 0.65]), np.array([0.75, 0.85, 0.90])),
+            (np.array([0.10, 0.70, 0.55]), np.array([0.30, 0.95, 0.80])),
+            (np.array([0.70, 0.10, 0.50]), np.array([0.90, 0.35, 0.80])),
+        ]
+        for lo, hi in box_field_boxes:
+            _draw_box_3d(ax, lo, hi)
+        xs_bf, xg_bf = np.array([0.05, 0.05, 0.05]), np.array([0.95, 0.95, 0.95])
+        ax.scatter(*xs_bf, marker='s', s=70, c=START_COLOR, depthshade=False, zorder=5)
+        ax.scatter(*xg_bf, marker='*', s=120, c=GOAL_COLOR, depthshade=False, zorder=5)
+        ax.set_xlim(0, 1); ax.set_ylim(0, 1); ax.set_zlim(0, 1)
+        ax.set_xlabel('x', fontsize=11); ax.set_ylabel('y', fontsize=11); ax.set_zlabel('z', fontsize=11)
+        ax.set_title('3D Box\nField', fontsize=11, fontweight='bold', pad=18)
+
+        fig.suptitle('3D Planning Environments', fontsize=16, fontweight='bold', y=1.01)
+        fig.subplots_adjust(hspace=0.35)
+        path_out = os.path.join(PLOTS_DIR, 'environments_3d.png')
+        fig.savefig(path_out, dpi=200, bbox_inches='tight')
+        print(f'  → {path_out}')
+        plt.close(fig)
+
+    else:
+        raise ValueError(f"dim must be '2D' or '3D', got '{dim}'")
 
 
 # ══════════════════════════════════════════════════════════════════════════════

@@ -40,7 +40,7 @@ def _draw_obstacles_2d(ax, env_name: str):
         ]
         for lo, hi in rects:
             w, h = hi[0] - lo[0], hi[1] - lo[1]
-            ax.add_patch(Rectangle(lo, w, h, fc='black', ec='black', alpha=0.7))
+            ax.add_patch(Rectangle(lo, w, h, fc='black', ec='black', alpha=0.7, zorder=6))
 
     elif env_name == '2d_obstacle':
         circles = [
@@ -52,7 +52,7 @@ def _draw_obstacles_2d(ax, env_name: str):
             ([0.70, 0.60], 0.08),
         ]
         for c, r in circles:
-            ax.add_patch(Circle(c, r, fc='black', ec='black', alpha=0.7))
+            ax.add_patch(Circle(c, r, fc='black', ec='black', alpha=0.7, zorder=6))
 
     elif env_name == '2d_narrow_passage':
         gap_y_lo, gap_y_hi = 0.47, 0.53
@@ -66,7 +66,7 @@ def _draw_obstacles_2d(ax, env_name: str):
         ]
         for lo, hi in rects:
             w, h = hi[0] - lo[0], hi[1] - lo[1]
-            ax.add_patch(Rectangle(lo, w, h, fc='black', ec='black', alpha=0.7))
+            ax.add_patch(Rectangle(lo, w, h, fc='black', ec='black', alpha=0.7, zorder=6))
 
     elif env_name == '2d_maze':
         rects = [
@@ -76,7 +76,7 @@ def _draw_obstacles_2d(ax, env_name: str):
         ]
         for lo, hi in rects:
             w, h = hi[0] - lo[0], hi[1] - lo[1]
-            ax.add_patch(Rectangle(lo, w, h, fc='black', ec='black', alpha=0.7))
+            ax.add_patch(Rectangle(lo, w, h, fc='black', ec='black', alpha=0.7, zorder=6))
 
     elif env_name == '2d_bug_trap':
         rects = [
@@ -88,7 +88,7 @@ def _draw_obstacles_2d(ax, env_name: str):
         ]
         for lo, hi in rects:
             w, h = hi[0] - lo[0], hi[1] - lo[1]
-            ax.add_patch(Rectangle(lo, w, h, fc='black', ec='black', alpha=0.7))
+            ax.add_patch(Rectangle(lo, w, h, fc='black', ec='black', alpha=0.7, zorder=6))
 
     elif env_name == '2d_random_forest':
         rng = np.random.default_rng(12345)
@@ -105,7 +105,7 @@ def _draw_obstacles_2d(ax, env_name: str):
                 continue
             centres.append(c)
         for c in centres[:25]:
-            ax.add_patch(Circle(c, 0.04, fc='black', ec='black', alpha=0.7))
+            ax.add_patch(Circle(c, 0.04, fc='black', ec='black', alpha=0.7, zorder=6))
 
     elif env_name == '2d_random_world':
         rng = np.random.default_rng(2015_04)
@@ -130,9 +130,48 @@ def _draw_obstacles_2d(ax, env_name: str):
                 lo[1] <= x_goal[1] + clr and hi[1] >= x_goal[1] - clr):
                 continue
             rects.append((lo, hi))
+
+        # Mirror env_2d_random_world(): eliminate an ultra-narrow slit by
+        # creating a slight overlap between the tightest vertical pair.
+        min_gap = np.inf
+        best_pair = None  # (upper_idx, gap)
+        for i in range(len(rects)):
+            lo_i, hi_i = rects[i]
+            for j in range(i + 1, len(rects)):
+                lo_j, hi_j = rects[j]
+                x_overlap = min(hi_i[0], hi_j[0]) - max(lo_i[0], lo_j[0])
+                if x_overlap < 0.04:
+                    continue
+                if hi_i[1] <= lo_j[1]:
+                    gap = lo_j[1] - hi_i[1]
+                    upper_idx = j
+                elif hi_j[1] <= lo_i[1]:
+                    gap = lo_i[1] - hi_j[1]
+                    upper_idx = i
+                else:
+                    continue
+                if gap < min_gap:
+                    min_gap = gap
+                    best_pair = (upper_idx, gap)
+
+        if best_pair is not None and min_gap < 0.05:
+            upper_idx, gap = best_pair
+            target_gap = -0.02
+            dy = target_gap - gap
+            if abs(dy) > 1e-12:
+                lo_u, hi_u = rects[upper_idx]
+                new_lo = lo_u + np.array([0.0, dy])
+                new_hi = hi_u + np.array([0.0, dy])
+                s_ok = not (new_lo[0] <= x_start[0] + clr and new_hi[0] >= x_start[0] - clr and
+                            new_lo[1] <= x_start[1] + clr and new_hi[1] >= x_start[1] - clr)
+                g_ok = not (new_lo[0] <= x_goal[0] + clr and new_hi[0] >= x_goal[0] - clr and
+                            new_lo[1] <= x_goal[1] + clr and new_hi[1] >= x_goal[1] - clr)
+                if s_ok and g_ok:
+                    rects[upper_idx] = (new_lo, new_hi)
+
         for lo, hi in rects[:n_obs]:
             w, h = hi[0] - lo[0], hi[1] - lo[1]
-            ax.add_patch(Rectangle(lo, w, h, fc='#404040', ec='#303030', alpha=0.85))
+            ax.add_patch(Rectangle(lo, w, h, fc='#404040', ec='#303030', alpha=0.85, zorder=6))
 
     elif env_name == '2d_dividing_wall':
         wall_x_lo, wall_x_hi = 0.47, 0.53
@@ -147,10 +186,10 @@ def _draw_obstacles_2d(ax, env_name: str):
         ]
         for lo, hi in wall_segments:
             w, h = hi[0] - lo[0], hi[1] - lo[1]
-            ax.add_patch(Rectangle(lo, w, h, fc='#333333', ec='#1a1a1a', alpha=0.9))
+            ax.add_patch(Rectangle(lo, w, h, fc='#333333', ec='#1a1a1a', alpha=0.9, zorder=6))
         for lo, hi in flanking:
             w, h = hi[0] - lo[0], hi[1] - lo[1]
-            ax.add_patch(Rectangle(lo, w, h, fc='#404040', ec='#303030', alpha=0.85))
+            ax.add_patch(Rectangle(lo, w, h, fc='#404040', ec='#303030', alpha=0.85, zorder=6))
 
     elif env_name == '2d_terrain':
         # Terrain peaks at sin²(3πx)·sin²(3πy) maxima — high-cost zones (no hard obstacles)
@@ -158,7 +197,7 @@ def _draw_obstacles_2d(ax, env_name: str):
             for cy in [1/6, 0.5, 5/6]:
                 ax.add_patch(Circle([cx, cy], 0.09,
                                     fc='#909090', ec='#555555',
-                                    lw=1.2, ls='--', alpha=0.55, zorder=4))
+                                    lw=1.2, ls='--', alpha=0.55, zorder=6))
 
 
 # ═══════════════════════════════════════════════════════════════════════

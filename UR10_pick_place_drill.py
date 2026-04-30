@@ -428,25 +428,24 @@ def main():
             clr = RQ_BLACK if "finger_tip" in lname else RQ_DARK
             p.changeVisualShape(rid, lidx, rgbaColor=clr, physicsClientId=cid)
 
-    # ── Hard-coded start / goal (precomputed offline with _find_wall_carry_ik.py) ──
-    # Start target: [-0.590, -0.691, 0.980] (+1 cm toward robot vs original -0.600)
-    # Goal target:  mirror on +y side shifted +3 cm toward robot: [-0.570, +0.491, 0.980]
-    # Both collision-free top-down grasps; wrist_3 identical at start & goal so
-    # the fingers straddle the drill handle the same way at both ends.
-    # Grasp orientation: rotate wrist_3 (joint 6) so the fingers close
-    # ACROSS the drill handle (one finger on each side), not along it.
-    # Start shifted +1 cm toward robot (+x): EE [-0.600, -0.691, 0.980] → [-0.590, -0.691, 0.980]
-    # Joints 0-4 from re-run IK; wrist_3 base (-2.470412) gets same −π/2 offset
-    # as before so fingers close ACROSS the handle (not along it).
+    # ── Hard-coded start / computed goal ──────────────────────────────────────
+    # Start target: [-0.590, -0.691, 0.980] (−y side of wall)
+    # Grasp orientation: wrist_3 offset −π/2 so fingers close ACROSS the handle.
     q_start = np.array([0.671183, -0.993925, 1.692647,
                         -2.269542, -1.570794, -2.470412 - np.pi / 2])
-    # Goal shifted +3 cm toward robot (+x) so the drill handle sits centred
-    # between the fingers at the place pose (EE x: -0.600 → -0.570).
-    q_goal = np.array([-0.944723, -1.190356, 2.023317,
-                       -2.403726, -1.570796, -4.086318])
+
+    # Goal: directly across the wall on the +y side, only 0.20 m past the wall's
+    # +y face — x = WALL_X (inside the wall's x-extent), z = 0.980 (same height
+    # as start).  Both start and goal are inside the wall's x-extent and below
+    # the wall top (z=0.980 < z_top≈1.150), forcing the planner to pass over the
+    # box rather than routing around it.
+    goal_target = [WALL_X, WALL_Y + WALL_W / 2 + 0.20, 0.980]
+    print(f"[IK] Solving goal IK for target {[round(v,3) for v in goal_target]} ...")
+    q_goal = find_ik(env, goal_target, "goal (near box)")
+    assert q_goal is not None, "Goal IK not found — adjust goal_target"
 
     assert env.is_collision_free(q_start), "Hard-coded start is in collision!"
-    assert env.is_collision_free(q_goal),  "Hard-coded goal  is in collision!"
+    assert env.is_collision_free(q_goal),  "Goal is in collision!"
 
     # ── Attach drill between gripper fingers at start ─────────────
     drill_id, _, drill_in_ft, drill_orn_in_ft = attach_drill_to_gripper(env, q_start)

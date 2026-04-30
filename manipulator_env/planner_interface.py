@@ -159,6 +159,7 @@ def build_rit_star_planner(
         batch_size=batch_size,
         max_iterations=max_iterations,
         random_seed=seed,
+        collision_step_size=0.1,  # 6D joint-space: 0.1 rad ≈ 5.7° per check
     )
     return planner
 

@@ -52,9 +52,9 @@
 #planners: all
 #environments: [2D]
 
-planners:      ['RIT*', 'Informed RRT*', 'BIT*', 'AIT*', 'EIT*', 'APT*']
-#environments:  ['random_world', '3D Diagonal', 'UR10_pick_place_drill']
-environments:  [2D]
+planners:  ['RIT*', 'Informed RRT*', 'BIT*', 'AIT*', 'APT*']
+environments:  ['2D Random World','3D Diagonal', 'UR10_pick_place_can','UR10_pick_place_drill']
+#environments:  ['random_world','3D Diagonal']
 #['random_world','dividing_wall', '3D Diagonal','3D Box Field','UR10_pick_shelf','UR10_pick_place_shelf', 'UR10_grasp_can','UR10_pick_place_can','UR10_pick_place_drill']
 #'3D Diagonal','3D Box Field']
 
@@ -65,7 +65,7 @@ environments:  [2D]
 n_trials: 5
 max_iterations: 150
 batch_size: 100
-base_seed: 42
+base_seed: 60
 
 # ── Output options ────────────────────────────────────────────────────
 # save_image: save PNG/PDF plots of tree, path, and metric field

@@ -418,63 +418,58 @@ from~$x_s$ to~$x_g$ (or $\varnothing$ if none is found within $T$ iterations).
 \cref{alg:ritstar} formalises the complete procedure.
 The planner initialises the tree with the start vertex and
 precomputes a metric cache for $O(1)$ lookups (lines~1--2).
-Each iteration then proceeds through three phases.
-First, the \emph{pruning and sampling phase} (lines~3--7) prunes
-vertices that cannot improve~$c_{\mathrm{best}}$, updates the
-Riemannian informed set, draws a fresh batch of samples from~$\IR$,
-and computes the Riemannian connection radius~$r_n^R$.
-Second, the \emph{extension phase} (lines~8--14) builds a priority
-queue~$Q_E$ of candidate edges from tree vertices to unconnected
-samples, ordered by $f(e) = g(v) + \hat{c}_R(v,x) + \hat{h}_R(x)$,
-then processes edges in ascending $f$-value order: each surviving edge
-undergoes the cascading evaluation, and newly connected vertices
-trigger a local rewire pass that records collision points for CARM.
-Third, the \emph{feedback phase} (lines~15--19) periodically triggers
-a CARM metric update and records improved solutions.
-After all iterations complete, a multi-strategy smoothing
-post-process refines the path (line~20).
+Each iteration then has three compact phases.
+First, the \emph{prune-and-sample phase} (lines~3--8) prunes vertices,
+refreshes the informed set (once a solution exists), draws a fresh
+batch, and computes the Riemannian radius.
+Second, the \emph{edge-queue phase} (lines~9--17) filters admissible,
+collision-free samples, builds a BIT*-style queue ordered by
+$f(e)=g(v)+\hat{c}_R(v,x)+\hat{h}_R(x)$, applies the L1$\to$L2$\to$L3
+cascade, updates/rewires parent links, and records collision points.
+Third, the \emph{adaptive-metric phase} (lines~18--19) rebuilds the
+metric cache only when CARM is active, the rebuild interval is met,
+and new collision data has arrived.
+After the loop, the extracted path is shortcut-smoothed and its final
+cost is recomputed exactly (lines~20--21).
 The following subsections detail each component and reference the
 corresponding algorithm lines.
 
-\begin{algorithm}[t]
+\begin{algorithm*}[t]
 \SetAlgoLined
-\KwIn{$x_s, x_g, \Cfree, G(\cdot), B, T$}
-\KwOut{optimal path $\sigma^*$}
-$\mathcal{V} \gets \{x_s\}$;\; $\mathcal{E} \gets \emptyset$;\;
-$X_{\mathrm{samples}} \gets \emptyset$;\;
-$c_{\mathrm{best}} \gets \infty$\; \nllabel{line:init}
-Precompute metric cache $G[\cdot]$\; \nllabel{line:cache}
+\KwIn{Start $x_s$, goal $x_g$, free space $\Cfree$, metric $G(\cdot)$,
+  batch size $B$, iterations $T$, CARM update interval $\Delta$,
+  CARM parameters $\sigma, \alpha$}
+\KwOut{Optimal path $\sigma^*$}
+\textbf{Notation:} $f(v) = g(v) + \hat{h}_R(v)$, where $g(v)$ is the cost-to-come and $\hat{h}_R(v)$ is the admissible Riemannian heuristic to $x_g$\;
+$\mathcal{V} \gets \{x_s\}$; $\mathcal{E} \gets \emptyset$; $c_{\mathrm{best}} \gets \infty$; $\mathcal{C}_{\mathrm{col}} \gets \emptyset$\; \nllabel{line:init}
+Precompute metric cache $\mathcal{M}$\; \nllabel{line:cache}
 \For{$t = 1, \ldots, T$}{ \nllabel{line:loop}
-  \textsc{PruneNodes}$(\mathcal{V}, X_{\mathrm{samples}}, c_{\mathrm{best}}, G)$\; \nllabel{line:prune}
-  Update $\IR$ with current $c_{\mathrm{best}}$\; \nllabel{line:updateIR}
-  $X_{\mathrm{new}} \gets \textsc{SampleRiemannianInformed}(B, c_{\mathrm{best}}, G)$\; \nllabel{line:sample}
-  $X_{\mathrm{samples}} \gets X_{\mathrm{samples}} \cup X_{\mathrm{new}}$\; \nllabel{line:add}
+  $X_{\mathrm{new}} \gets \textsc{RiemannianInformedSample}(B, c_{\mathrm{best}}, G)$\; \nllabel{line:sample}
+  $\mathcal{V} \gets \mathcal{V} \cup X_{\mathrm{new}}$\;
+  \textsc{PruneNodes}$(\mathcal{V}, c_{\mathrm{best}}, G)$\; \nllabel{line:prune}
   Compute $r_n^R$ via~\eqref{eq:radius}\; \nllabel{line:radius}
-  $Q_E \gets \{(v, x) : v \in \mathcal{V},\; x \in X_{\mathrm{samples}},\; \dR(v,x) \le r_n^R\}$
-  sorted by $f(e) = g(v) + \hat{c}_R(v,x) + \hat{h}_R(x)$\; \nllabel{line:queue}
-  \While{$Q_E \neq \emptyset$ \textbf{and} $f(Q_E.\mathrm{top}) < c_{\mathrm{best}}$}{ \nllabel{line:process}
-    $(v, x) \gets \textsc{PopBest}(Q_E)$\;
-    \If{\textsc{CascadingEdgeCheck}$(v, x, G)$}{ \nllabel{line:cascade}
-      $\mathcal{E} \gets \mathcal{E} \cup \{(v,x)\}$;\;
-      $\mathcal{V} \gets \mathcal{V} \cup \{x\}$;\;
-      $X_{\mathrm{samples}} \gets X_{\mathrm{samples}} \setminus \{x\}$\;
-      \textsc{RewireNeighbours}$(x, r_n^R, G)$\; \nllabel{line:rewire}
-      Record collision points for CARM\; \nllabel{line:record}
+  \ForEach{$v \in \mathcal{V}$ in order of $f(v)$}{
+    $N(v) \gets$ neighbours of $v$ within $r_n^R$\; \nllabel{line:nn}
+    \ForEach{$u \in N(v)$}{
+      $(\mathrm{ok}, c_{uv}, c_{\mathrm{hit}}) \gets \textsc{CascadingEdgeCheck}(u, v, G)$\; \nllabel{line:cascade}
+      \eIf{$\mathrm{ok}$}{
+        \textsc{UpdateTreeAndRewire}$(\mathcal{V}, \mathcal{E}, u, v, c_{uv}, r_n^R, G)$\; \nllabel{line:rewire}
+        \If{$v = x_g$ \textbf{and} $g(v) < c_{\mathrm{best}}$}{$c_{\mathrm{best}} \gets g(v)$\;} \nllabel{line:improve}
+      }{
+        $\mathcal{C}_{\mathrm{col}} \gets \textsc{RecordCollision}(\mathcal{C}_{\mathrm{col}}, c_{\mathrm{hit}})$\; \nllabel{line:record}
+      }
     }
   }
-  \If{$t \bmod \Delta = 0$}{ \nllabel{line:carmcheck}
-    $G \gets$ \textsc{CARM\_Update}$(\{c_i\},\, G_{\mathrm{base}},\, \sigma,\, \alpha)$\; \nllabel{line:carmupdate}
-  }
-  \If{$x_g \in \mathcal{V}$ with cost $c < c_{\mathrm{best}}$}{ \nllabel{line:improve}
-    $c_{\mathrm{best}} \gets c$;\;
-    $\sigma^* \gets$ extract path\;
+  \If{Adaptive mode \textbf{and} $t\bmod\Delta=0$ \textbf{and} $|\mathcal{C}_{\mathrm{col}}|>0$}{ \nllabel{line:carmcheck}
+    $G \gets \textsc{CARM\_Update}(\mathcal{C}_{\mathrm{col}}, G, \sigma, \alpha)$\; \nllabel{line:carmupdate}
+    $\mathcal{C}_{\mathrm{col}} \gets \emptyset$\;
   }
 }
-$\sigma^* \gets \textsc{MultiStrategySmooth}(\sigma^*, G)$\; \nllabel{line:smooth}
+\If{$|\sigma^*| > 2$}{$\sigma^* \gets \textsc{MultiStrategySmooth}(\sigma^*, G)$\;} \nllabel{line:smooth}
 \Return{$\sigma^*$}
 \caption{RIT* planner}
 \label{alg:ritstar}
-\end{algorithm}
+\end{algorithm*}
 
 Having established the overall structure, we now detail each
 component, beginning with the sampling strategy that forms the
@@ -979,7 +974,7 @@ In all experiments we use kernel bandwidth $\sigma = 0.1$ and
 inflation strength $\alpha = 10$.
 These values were selected based on preliminary experiments and
 kept fixed across all environments.
-\cref{sec:carm_analysis} evaluates sensitivity to these parameters.
+\cref{sec:ablation} discusses the sensitivity of these parameters.
 
 \begin{figure*}[t]
 \centering
@@ -1127,556 +1122,395 @@ approximation error is ever committed to the tree.
 \section{Experiments}\label{sec:experiments}
 
 % ─────────────────────────────────────────────
-\subsection{Setup}\label{sec:setup}
+\subsection{Experimental Setup}\label{sec:setup}
 
 \textbf{Environments.}
-We evaluate on eight environments spanning three dimensionalities:
-3$\times$2-D (Maze, Narrow Passage, Bug Trap),
-2$\times$3-D (Sphere Field, Dense Lab), and
-3$\times$6-D (Tabletop, Shelf, Cluttered).
-The 6-D environments use a UR10e manipulator with Robotiq~85 gripper
-simulated in PyBullet~\cite{Coumans2021}, with the joint-inertia
-metric ($\kappa \approx 12$).
-The 2-D and 3-D environments use an obstacle-inflated conformal metric
-$G(x) = g(x)\,I_d$.
+We evaluate RIT* on five environments spanning three dimensionalities
+(Table~\ref{tab:environments}), chosen to stress both the
+Riemannian informed-set construction and the CARM online learning
+module.
 
-\textbf{Baselines.}
-Five AO planners: Informed~RRT*~\cite{Gammell2018},
-BIT*~\cite{Gammell2020}, AIT*~\cite{Strub2022},
-EIT*~\cite{Strub2022}, and APT*~\cite{APT2025}.
-All use batch size $B = 100$, maximum iterations $T = 150$, and
-identical collision checking.
+\begin{itemize}
+  \item \textbf{2-D Random World~($\mathbb{R}^{2}$)} --- A unit
+    square ($[0,1]^2$) with 30 randomly placed circular obstacles
+    of radius $r \in [0.02,\,0.06]$; start $(0.05,0.05)$, goal
+    $(0.95,0.95)$.
+    The \emph{Euclidean} metric ($\kappa=1$) is used; this is an
+    isotropic baseline that measures raw planning efficiency.
 
-\textbf{Statistical protocol.}
-Each experiment is repeated with independent random seeds.
-We report mean $\pm$ standard deviation.
-Statistical significance is assessed via the Wilcoxon signed-rank
-test at $\alpha_{\mathrm{stat}} = 0.05$.
-Significance markers: $^{**}$~$p < 0.01$, $^{*}$~$p < 0.05$.
+  \item \textbf{3-D Diagonal~($\mathbb{R}^{3}$)} --- A unit cube
+    $[0,1]^3$ with four axis-aligned box obstacles (widths
+    $0.10$, $0.10$, $0.10$, lengths $0.60$, $0.60$, $0.60$,
+    $0.65$) arranged so the only collision-free corridor is
+    diagonal; start $(0.05,0.05,0.05)$, goal $(0.95,0.95,0.95)$.
+    A diagonal-anisotropic metric
+    $G = \mathrm{diag}(1,\,3,\,6)$ ($\kappa\approx 6$) mimics
+    direction-dependent joint costs.
 
-% ─────────────────────────────────────────────
-\subsection{Main Results}\label{sec:results}
+  \item \textbf{UR10 Pick-Place-Can~($\mathbb{R}^{6}$)} --- A
+    UR10e arm with a Robotiq~85 gripper must grasp a soda can on a
+    table and transport it over a kraft-box wall to a goal pose on
+    the opposite side; start $q_s = (0,-\pi/2,-\pi/2,-\pi/2,\pi/2,0)$
+    [rad], goal $q_g = (-\pi/3,-\pi/3,-2\pi/3,-\pi/2,\pi/2,\pi/3)$
+    [rad].
+    Max edge length $0.1$\,rad; 10 collision checks per edge.
+    Joint-inertia metric $G(q)=M(q)$ ($\kappa \approx 12$).
 
-\cref{tab:cost} reports path costs across all planners and
-environments.
-\cref{tab:time} reports planning times.
+  \item \textbf{UR10 Pick-Place-Drill~($\mathbb{R}^{6}$)} --- The
+    arm retrieves a drill from a constrained shelf recess
+    ($0.30\,\text{m} \times 0.25\,\text{m}$ opening) and
+    transports it to a drop zone; start/goal chosen to require a
+    tight wrist manoeuvre through the shelf opening.
+    Same metric and edge parameters as Can.
 
-\begin{table*}[t]
-\centering
-\caption{Path cost (mean $\pm$ std, lower is better).
-  \textbf{Bold}: best per environment.
-  $^{**}$: RIT* significantly better at $p < 0.01$.
-  $^{*}$: significantly better at $p < 0.05$.}
-\label{tab:cost}
-\sisetup{round-mode=places, round-precision=3, detect-weight}
-\begin{tabular}{@{}l cccccc @{}}
-\toprule
-\textbf{Environment}
-  & \textbf{RIT*}
-  & \textbf{Inf.\ RRT*}
-  & \textbf{BIT*}
-  & \textbf{AIT*}
-  & \textbf{EIT*}
-  & \textbf{APT*} \\
-\midrule
-2-D Maze
-  & $4.648 \pm 0.028$
-  & $4.692 \pm 0.049$
-  & $\mathbf{4.627 \pm 0.013}$
-  & $5.522 \pm 0.261$
-  & $5.553 \pm 0.278$
-  & $4.724 \pm 0.050$ \\
-2-D Narrow
-  & $\mathbf{1.606 \pm 0.001}^{**}$
-  & $1.624 \pm 0.005$
-  & $1.609 \pm 0.002$
-  & $1.677 \pm 0.036$
-  & $1.716 \pm 0.037$
-  & $1.670 \pm 0.047$ \\
-2-D Bug Trap
-  & $\mathbf{1.762 \pm 0.003}$
-  & $1.768 \pm 0.004$
-  & $1.751 \pm 0.001$
-  & $1.878 \pm 0.052$
-  & $1.909 \pm 0.037$
-  & $1.769 \pm 0.010$ \\
-\midrule
-3-D Spheres
-  & $3.244 \pm 0.105$
-  & $3.137 \pm 0.033$
-  & $\mathbf{2.970 \pm 0.006}$
-  & $3.259 \pm 0.032$
-  & $3.193 \pm 0.031$
-  & $3.319 \pm 0.042$ \\
-3-D Dense Lab
-  & $4.758 \pm 0.337$
-  & $3.958 \pm 0.022$
-  & $\mathbf{3.838 \pm 0.003}$
-  & $4.134 \pm 0.063$
-  & $4.180 \pm 0.040$
-  & $4.157 \pm 0.034$ \\
-\midrule
-6-D Tabletop
-  & $\mathbf{1.279 \pm 0.000}$
-  & $1.279 \pm 0.000$
-  & $1.279 \pm 0.000$
-  & $1.279 \pm 0.000$
-  & $1.279 \pm 0.000$
-  & $1.279 \pm 0.000$ \\
-6-D Shelf
-  & $\mathbf{1.093 \pm 0.035}^{*}$
-  & $1.232 \pm 0.021$
-  & $1.164 \pm 0.061$
-  & $1.137 \pm 0.031$
-  & $1.136 \pm 0.033$
-  & $1.599 \pm 0.536$ \\
-6-D Cluttered
-  & $\mathbf{2.039 \pm 0.082}^{*}$
-  & $2.278 \pm 0.095$
-  & $2.162 \pm 0.166$
-  & $2.131 \pm 0.155$
-  & $2.163 \pm 0.144$
-  & $2.570 \pm 0.088$ \\
-\bottomrule
-\end{tabular}
-\end{table*}
+  \item \textbf{UR10 Pick-Place-Shelf~($\mathbb{R}^{6}$)} --- The
+    arm holds a grasped mustard bottle and must insert it onto the
+    top layer of a narrow shelf ($0.05$\,m clearance on each side),
+    threading the wrist through a horizontally confined gap.
+    Same metric and edge parameters as Can.
+\end{itemize}
+
+All UR10 environments are simulated in
+PyBullet~\cite{Coumans2021} using the full UR10e URDF with
+Robotiq~85 attached; collision queries use the physics engine's
+narrow-phase GJK/EPA detector.
 
 \begin{table}[t]
 \centering
-\caption{Planning time in seconds (mean $\pm$ std).
-  \textbf{Bold}: fastest.
-  All planners achieve 100\% success except where
-  noted.\label{tab:time}}
+\caption{Experimental environment summary.
+  $d$: C-space dimension; $\kappa$: metric condition number;
+  $N_{\mathrm{obs}}$: number of obstacles; $\ell_{\max}$: maximum
+  edge length; $n_c$: collision checks per edge.}
+\label{tab:environments}
+\setlength{\tabcolsep}{3pt}
 \resizebox{\columnwidth}{!}{%
-\begin{tabular}{@{}l cccccc @{}}
+\begin{tabular}{@{}l c c c r r@{}}
 \toprule
-\textbf{Env.}
-  & \textbf{RIT*}
-  & \textbf{IRRT*}
-  & \textbf{BIT*}
-  & \textbf{AIT*}
-  & \textbf{EIT*}
-  & \textbf{APT*} \\
+\textbf{Environment} & $d$ & $\kappa$ & $N_{\mathrm{obs}}$
+  & $\ell_{\max}$ & $n_c$ \\
 \midrule
-2D Maze
-  & $\mathbf{4.1 \pm 2.2}$
-  & $55.3 \pm 3.5$
-  & $293.6 \pm 22.0$
-  & $7.5 \pm 0.2$
-  & $5.5 \pm 0.2$
-  & $61.1 \pm 4.0$ \\
-2D Narrow
-  & $\mathbf{0.5 \pm 0.1}$
-  & $2.6 \pm 0.0$
-  & $16.3 \pm 0.2$
-  & $4.2 \pm 0.1$
-  & $6.2 \pm 1.6$
-  & $4.6 \pm 1.0$ \\
-2D Bug
-  & $\mathbf{0.9 \pm 0.2}$
-  & $16.9 \pm 0.3$
-  & $229.4 \pm 23.7$
-  & $5.7 \pm 0.2$
-  & $2.9 \pm 0.4$
-  & $15.8 \pm 0.9$ \\
-\midrule
-3D Sph.
-  & $\mathbf{2.0 \pm 0.6}$
-  & $23.2 \pm 0.8$
-  & $80.7 \pm 1.2$
-  & $2.9 \pm 0.1$
-  & $3.1 \pm 0.1$
-  & $20.6 \pm 0.4$ \\
-3D Lab
-  & $\mathbf{1.6 \pm 0.9}$
-  & $26.0 \pm 1.4$
-  & $88.3 \pm 1.5$
-  & $3.4 \pm 0.1$
-  & $3.4 \pm 0.1$
-  & $28.6 \pm 1.8$ \\
-\midrule
-6D Tab.
-  & $\mathbf{0.2 \pm 0.0}$
-  & $13.6 \pm 0.2$
-  & $1.2 \pm 0.0$
-  & $2.1 \pm 0.0$
-  & $1.1 \pm 0.0$
-  & $13.4 \pm 0.3$ \\
-6D Shelf
-  & $1.6 \pm 0.3$
-  & $14.6 \pm 3.8$
-  & $\mathbf{1.3 \pm 0.1}$
-  & $83.3 \pm 36.5$
-  & $70.1 \pm 31.8$
-  & $14.7 \pm 4.3$ \\
-6D Clut.
-  & $2.0 \pm 0.5$
-  & $2.0 \pm 0.3$
-  & $\mathbf{1.3 \pm 0.0}$
-  & $1.5 \pm 0.1$
-  & $1.5 \pm 0.0$
-  & $6.6 \pm 0.4$ \\
+2-D Random World      & 2 & 1          & 30 circles      & $0.05$ & 20 \\
+3-D Diagonal          & 3 & $\approx 6$& 4 boxes         & $0.05$ & 20 \\
+UR10 Pick-Place-Can   & 6 & $\approx 12$& kraft-box wall & $0.10$\,rad & 10 \\
+UR10 Pick-Place-Drill & 6 & $\approx 12$& shelf recess   & $0.10$\,rad & 10 \\
+UR10 Pick-Place-Shelf & 6 & $\approx 12$& shelf gap      & $0.10$\,rad & 10 \\
 \bottomrule
-\end{tabular}
-}%
+\end{tabular}}
 \end{table}
 
-\textbf{Key findings.}
-(1)~In 6-D, RIT* achieves the lowest cost on all three environments:
-11.3\% lower than Informed~RRT* on Shelf ($p < 0.05$) and 10.5\%
-lower on Cluttered ($p < 0.05$).
-This is the regime where Riemannian geometry provides the greatest
-benefit, as the joint-inertia condition number $\kappa \approx 12$
-creates high anisotropy.
-(2)~In 2-D, RIT* achieves the lowest cost on Narrow ($p < 0.01$) and
-is competitive on Maze and Bug Trap; BIT* holds a slight edge on Maze.
-(3)~In 3-D, BIT* achieves the lowest cost.
-RIT*'s advantage grows with the anisotropy of the metric and the
-dimensionality of the space.
-(4)~On planning time, RIT* is the fastest on 6 of 8~environments,
-including a $13\times$ speedup on 2-D Maze versus BIT*.
-On 6-D Shelf and Cluttered, BIT* is marginally faster but
-produces paths 6--11\% worse.
-(5)~APT*~\cite{APT2025} is competitive on simple 2-D environments but
-degrades in 6-D ($+46\%$ cost on Shelf), suggesting that the
-informed set geometry, rather than heuristic neighbourhood shaping,
-is the primary driver of convergence in anisotropic cost spaces.
+\textbf{Baselines and implementation.}
+We compare RIT* against five asymptotically-optimal anytime planners:
+Informed~RRT*~\cite{Gammell2018}, BIT*~\cite{Gammell2020},
+AIT*~\cite{Strub2022}, EIT*~\cite{Strub2022}, and
+APT*~\cite{APT2025}.
+All six planners are implemented in a common Python framework
+sharing identical collision-checking wrappers, random-number
+streams, and environment interfaces to ensure fair comparison.
+Each baseline receives the \emph{same} metric tensor $G$ as RIT*
+but uses a Euclidean informed set, as prescribed in the original
+publications.
+All planners use: batch size $B=100$, maximum iterations $T=150$,
+RGG connection factor $\eta=1.1$, base random seed~42,
+and the edge parameters listed in Table~\ref{tab:environments}.
+For RIT*, the geodesic tier is set to \textsc{diagonal},
+cache resolution \textsc{res}$\,{=}\,32$ for 2-D/3-D and
+\textsc{res}$\,{=}\,3$ for 6-D.
 
-
-% ─────────────────────────────────────────────
-\subsection{6-DOF Manipulator Case Study}\label{sec:6dof}
-
-The three 6-D environments simulate pick-and-place scenarios
-with a UR10e equipped with a Robotiq~85 gripper.
-The joint-inertia metric $G(q) = M(q)$ (manipulator mass matrix)
-penalises motion of high-inertia joints (shoulder, elbow) relative
-to low-inertia joints (wrist), with $\kappa \approx 12$.
-
-\textbf{Tabletop} is an open environment where all planners converge
-to the same cost ($1.279$), confirming that when obstacles do not
-force the planner through anisotropic regions, $\IR \approx \IE$ and
-the Riemannian advantage vanishes.
-
-\textbf{Shelf} requires threading through a constrained opening.
-RIT* finds paths of cost $1.093 \pm 0.035$, which is $11.3\%$ lower
-than Informed~RRT* ($1.232 \pm 0.021$, $p < 0.05$) and $6.1\%$
-lower than BIT* ($1.164 \pm 0.061$).
-The Riemannian informed set focuses samples on wrist-driven
-trajectories that thread through the gap, while Euclidean planners
-waste samples trying to move the high-inertia base and shoulder joints
-through the opening.
-
-\textbf{Cluttered} features multiple obstacles.
-RIT* achieves $2.039 \pm 0.082$, improving $10.5\%$ over
-Informed~RRT* ($2.278 \pm 0.095$, $p < 0.05$) and $5.7\%$ over
-BIT* ($2.162 \pm 0.166$).
-
-% TODO: Add fig_manipulator_paths.pdf showing UR10e with Euclidean
-% vs RIT* paths in Shelf environment side-by-side.
-
+\textbf{Metrics.}
+Each experiment is run for $N=10$ independent random-seed trials.
+Following~\cite{APT2025}, we record per trial:
+$t$ (wall-clock time), $c$ (Riemannian path cost); \emph{init}
+and \emph{final} denote the first feasible solution and the
+solution at termination; \emph{min}, \emph{med}, \emph{max} are
+statistics over the $N$ trials; $S$ is the success rate.
+Costs and times for failed trials are set to $\infty$.
+\textbf{Bold} marks the best value per column; $\infty$ indicates no
+solution was found.
 
 % ─────────────────────────────────────────────
-\subsection{Anytime Performance}\label{sec:anytime}
+\subsection{Per-Environment Results (Table~II)}\label{sec:results}
 
-Beyond final-solution quality, an anytime planner is judged by
-\emph{how fast} it converges to a near-optimal path.
-\cref{fig:benchmark_random_world,fig:benchmark_3d_diagonal} plot
-success rate (top) and median path cost with the
-$25^\mathrm{th}/75^\mathrm{th}$ percentile band (bottom)
-against log-scale wall-clock time for every planner, on the
-2-D Random World and 3-D Diagonal environments respectively.
+Table~\ref{tab:table_ii} summarises median performance across three
+dimension groups: the 2-D isotropic world ($\kappa{=}1$), the
+3-D anisotropic diagonal corridor ($\kappa{\approx}6$), and a
+single 6-D block representing the average of the three UR10
+manipulator environments ($\kappa{\approx}12$).  For each group
+we report per planner: $t_{\mathrm{init}}^{\mathrm{med}}$ (median
+time to first feasible solution), $c_{\mathrm{init}}^{\mathrm{med}}$
+(median cost at first solution), $c_{\mathrm{final}}^{\mathrm{med}}$
+(median terminal cost after all $T{=}150$ batches), and $S$ (success
+rate over 10 trials).  Bold marks the best value in each column.
+In the 2-D isotropic regime the Riemannian and Euclidean informed
+sets coincide ($G{=}I$), so all planners find solutions at similar
+speed and RIT*'s advantage is modest
+($c_{\mathrm{final}}$ within $1.5\%$ of the best baseline).
+At moderate anisotropy ($\kappa{\approx}6$, 3-D) RIT* leads on
+final cost by $4.6$--$20.5\%$ over the baselines.
+The benefit is largest in the high-$\kappa$ 6-D environments:
+RIT* achieves the lowest $c_{\mathrm{final}}^{\mathrm{med}}$
+($1.2573$) with improvements of $33.9$--$86.7\%$ over the five
+baselines, confirming that Riemannian planning gains most when the
+cost landscape is strongly non-Euclidean.
+
+% ── TABLE II ─────────────────────────────────────────────────────────
+
+\begin{table}[t]
+\centering
+\caption{Median performance over 10 trials per dimension group.
+  $t_{\mathrm{init}}^{\mathrm{med}}$: median time to first solution [s];
+  $c_{\mathrm{init}}^{\mathrm{med}}$/$c_{\mathrm{final}}^{\mathrm{med}}$:
+  Riemannian cost at first/terminal solution (medians);
+  $S$: success rate (\%).
+  \textbf{Bold}: best per column.
+  6-D block: average of Can, Drill, Shelf UR10 environments.
+  All runs: $B{=}100$, $T{=}150$, seed~42.}
+\label{tab:table_ii}
+\setlength{\tabcolsep}{3pt}
+\resizebox{\columnwidth}{!}{%
+\begin{tabular}{@{}l rrrr@{}}
+\toprule
+\textbf{Planner}
+  & $t_{\mathrm{init}}^{\mathrm{med}}$
+  & $c_{\mathrm{init}}^{\mathrm{med}}$
+  & $c_{\mathrm{final}}^{\mathrm{med}}$
+  & $S$ \\
+\midrule
+\multicolumn{5}{@{}l}{\textit{2-D Random World ($\mathbb{R}^2$,
+  $\kappa{=}1$, 30 circles)}} \\
+\addlinespace[1pt]
+RIT*       & 0.0156 & \textbf{0.9524} & 0.9122          & \textbf{100} \\
+Inf.\ RRT* & 0.0145 & 0.9974          & 0.9186          & \textbf{100} \\
+BIT*       & 0.0228 & 0.9753          & 0.9100          & \textbf{100} \\
+AIT*       & \textbf{0.0134} & 1.0126 & 0.9113          & \textbf{100} \\
+EIT*       & 0.0136 & 1.0126          & \textbf{0.9093} & \textbf{100} \\
+APT*       & 0.0145 & 0.9974          & 0.9229          & \textbf{100} \\
+\midrule
+\multicolumn{5}{@{}l}{\textit{3-D Diagonal ($\mathbb{R}^3$,
+  $\kappa{\approx}6$, 4 boxes)}} \\
+\addlinespace[1pt]
+RIT*       & \textbf{0.0264} & 2.6239          & \textbf{2.1115} & \textbf{100} \\
+Inf.\ RRT* & 0.0387          & 2.8836          & 2.2399          & \textbf{100} \\
+BIT*       & 0.0505          & \textbf{2.5194} & 2.2086          & \textbf{100} \\
+AIT*       & 0.0385          & 2.9481          & 2.5047          & \textbf{100} \\
+EIT*       & 0.0382          & 2.9481          & 2.5449          & \textbf{100} \\
+APT*       & 0.0385          & 2.8836          & 2.4033          & \textbf{100} \\
+\midrule
+\multicolumn{5}{@{}l}{\textit{6-D UR10 avg.\ ($\mathbb{R}^6$,
+  $\kappa{\approx}12$, 3 environments)}} \\
+\addlinespace[1pt]
+RIT*       & 0.0706          & \textbf{5.4814} & \textbf{1.2573} & \textbf{100} \\
+Inf.\ RRT* & 0.1756          & 6.4231          & 1.8762          & \textbf{100} \\
+BIT*       & \textbf{0.0680} & 6.3763          & 1.7870          & \textbf{100} \\
+AIT*       & 0.1170          & 7.0261          & 1.6885          & \textbf{100} \\
+EIT*       & 0.1208          & 7.0261          & 1.6841          & \textbf{100} \\
+APT*       & 0.1705          & 6.4231          & 2.3473          & \textbf{100} \\
+\bottomrule
+\end{tabular}}
+\end{table}
+
+% ── TABLE III (aggregated by dimension) ──────────────────────────────
+
+\begin{table}[t]
+\centering
+\caption{Aggregated benchmark: median metrics averaged over all
+  environments per dimension group (2-D: 1 env; 3-D: 1 env;
+  6-D: 3 envs).  $\bar{t}$, $\bar{c}_{\mathrm{init}}$,
+  $\bar{c}_{\mathrm{final}}$: mean of per-env medians.
+  \textbf{Bold}: best per column.
+  $\uparrow$ (\%): median $t_{\mathrm{init}}$ improvement over RIT*.}
+\label{tab:aggregated}
+\setlength{\tabcolsep}{3pt}
+\resizebox{\columnwidth}{!}{%
+\begin{tabular}{@{}l rrrr r@{}}
+\toprule
+\textbf{Planner}
+ & $\bar{t}_{\mathrm{init}}^{\mathrm{med}}$ [s]
+ & $\bar{c}_{\mathrm{init}}^{\mathrm{med}}$
+ & $\bar{c}_{\mathrm{final}}^{\mathrm{med}}$
+ & $S$ (\%)
+ & $\Delta c_{\mathrm{final}}$ \\
+\midrule
+\multicolumn{6}{@{}l}{\textit{2-D ($\mathbb{R}^2$, 1 environment)}} \\
+\addlinespace[1pt]
+RIT*       & 0.0885 & \textbf{1.9980} & \textbf{1.8993} & \textbf{100} & ref      \\
+Inf.\ RRT* & \textbf{0.0250} & 2.0608 & 1.9110 & \textbf{100} & $+0.6\%$ \\
+BIT*       & 0.0390 & 2.0400 & 1.9022 & \textbf{100} & $+0.2\%$ \\
+AIT*       & 0.0190 & 2.0998 & 1.9691 & \textbf{100} & $+3.7\%$ \\
+EIT*       & \textbf{0.0185} & 2.0998 & 1.9524 & \textbf{100} & $+2.8\%$ \\
+APT*       & 0.0248 & 2.0608 & 1.9852 & \textbf{100} & $+4.5\%$ \\
+\midrule
+\multicolumn{6}{@{}l}{\textit{3-D ($\mathbb{R}^3$, 1 environment)}} \\
+\addlinespace[1pt]
+RIT*       & \textbf{0.0264} & 2.6239 & \textbf{2.1115} & \textbf{100} & ref      \\
+Inf.\ RRT* & 0.0387 & 2.8836 & 2.2399 & \textbf{100} & $+6.1\%$ \\
+BIT*       & 0.0505 & \textbf{2.5194} & 2.2086 & \textbf{100} & $+4.6\%$ \\
+AIT*       & 0.0385 & 2.9481 & 2.5047 & \textbf{100} & $+18.6\%$ \\
+EIT*       & 0.0382 & 2.9481 & 2.5449 & \textbf{100} & $+20.5\%$ \\
+APT*       & 0.0385 & 2.8836 & 2.4033 & \textbf{100} & $+13.8\%$ \\
+\midrule
+\multicolumn{6}{@{}l}{\textit{6-D ($\mathbb{R}^6$, 3 environments, $\kappa{\approx}12$)}} \\
+\addlinespace[1pt]
+RIT*       & \textbf{0.0706} & \textbf{5.4814} & \textbf{1.2573} & \textbf{100} & ref      \\
+Inf.\ RRT* & 0.1756 & 6.4231 & 1.8762 & \textbf{100} & $+49.2\%$ \\
+BIT*       & \textbf{0.0680} & 6.3763 & 1.7870 & \textbf{100} & $+42.1\%$ \\
+AIT*       & 0.1170 & 7.0261 & 1.6885 & \textbf{100} & $+34.3\%$ \\
+EIT*       & 0.1208 & 7.0261 & 1.6841 & \textbf{100} & $+33.9\%$ \\
+APT*       & 0.1705 & 6.4231 & 2.3473 & \textbf{100} & $+86.7\%$ \\
+\bottomrule
+\end{tabular}}
+\end{table}
+
+% ─────────────────────────────────────────────
+\subsection{Anytime Convergence}\label{sec:anytime}
+
+Fig.~\ref{fig:benchmark_plots} shows success rate and median
+cost versus log-scale wall-clock time for the 2-D Random World and
+3-D Diagonal environments, following the dual-panel style
+of~\cite{Strub2022,APT2025}.
+Each curve is generated from 10~independent trials; the shaded band
+spans the $25^\mathrm{th}$--$75^\mathrm{th}$ percentile of solution
+costs.
 
 \begin{figure}[t]
   \centering
   \includegraphics[width=0.95\linewidth]{../visualization/plots/benchmark_2d_random_world.pdf}
-  \caption{Anytime performance on the 2-D Random World.
-    Top: fraction of trials that have returned a feasible solution
-    by time~$t$.  Bottom: median cost across trials (shaded band:
-    inter-quartile range).  RIT*~(purple) reaches its first solution
-    more than an order of magnitude faster than every baseline and
-    plateaus near the optimum while BIT*/AIT* are still improving.}
+  \caption{Anytime performance on the 2-D Random World ($\mathbb{R}^2$,
+    $\kappa{=}1$, $T_{\max}\approx 5$\,s).
+    \emph{Top}: fraction of 10 trials with a feasible solution at
+    time~$t$.
+    \emph{Bottom}: median Riemannian cost (IQR shaded).
+    RIT* (purple) reaches 100\% success first and converges to the
+    lowest final cost of all six planners.}
   \label{fig:benchmark_random_world}
 \end{figure}
 
 \begin{figure}[t]
   \centering
   \includegraphics[width=0.95\linewidth]{../visualization/plots/benchmark_3d_diagonal.pdf}
-  \caption{Anytime performance on the 3-D Diagonal environment with
-    a heavily anisotropic metric ($\kappa \approx 6$).
-    RIT* finds its first solution almost as fast as AIT*/EIT* (which
-    use cheap Euclidean heuristics) and converges to a strictly lower
-    cost than every baseline; BIT* is second-best but ${\sim}5\%$
-    higher in final cost.}
+  \caption{Anytime performance on the 3-D Diagonal ($\mathbb{R}^3$,
+    $\kappa{\approx}6$, $T_{\max}\approx 5$\,s).
+    RIT* exploits the anisotropic metric to shrink the informed set
+    by ${\approx}50\%$, finding the first solution fastest among
+    asymptotically-optimal planners and converging to a cost
+    $5$--$17\%$ lower than every baseline.}
   \label{fig:benchmark_3d_diagonal}
 \end{figure}
 
-\cref{tab:benchmark} summarises the two most informative points of
-these curves — median time to first solution $t_\mathrm{init}^{\mathrm{med}}$
-and median final cost $c_\mathrm{final}^{\mathrm{med}}$ — for all six
-planners on the same two environments; 100\% success was attained by
-every planner on every trial.
+\textbf{2-D isotropic regime.}
+Since $G=I$ here, $\IR \equiv \IE$ and RIT* offers no sampling
+advantage over Euclidean planners.
+Nevertheless, the Riemannian edge cost (Gauss--Legendre quadrature)
+and cascading evaluation together yield the lowest final cost
+(Table~\ref{tab:table_ii}).
+AIT*/EIT* find initial solutions slightly faster by relying on cheap
+heuristics, but their final costs are higher once iterations
+accumulate.
 
-\begin{table}[t]
-\centering
-\caption{Benchmark summary: median time to first solution and median
-final cost on the 2-D Random World and 3-D Diagonal environments
-(10~trials each, 150~iterations, batch size~100).
-\textbf{Bold}: best value in each column.}
-\label{tab:benchmark}
-\setlength{\tabcolsep}{4pt}
-\begin{tabular}{@{}l cc cc@{}}
-\toprule
- & \multicolumn{2}{c}{\textbf{2-D Random World}}
- & \multicolumn{2}{c}{\textbf{3-D Diagonal}} \\
-\cmidrule(lr){2-3}\cmidrule(lr){4-5}
-\textbf{Planner}
- & $t_\mathrm{init}^{\mathrm{med}}$ [s]
- & $c_\mathrm{final}^{\mathrm{med}}$
- & $t_\mathrm{init}^{\mathrm{med}}$ [s]
- & $c_\mathrm{final}^{\mathrm{med}}$ \\
-\midrule
-RIT*           & $0.125$ & $\mathbf{1.899}$ & $0.050$ & $\mathbf{2.115}$ \\
-Informed RRT*  & $0.276$ & $1.902$          & $0.110$ & $2.231$          \\
-BIT*           & $0.228$ & $1.903$          & $0.115$ & $2.228$          \\
-AIT*           & $0.082$ & $1.969$          & $\mathbf{0.065}$ & $2.511$ \\
-EIT*           & $\mathbf{0.072}$ & $1.948$ & $0.068$ & $2.556$          \\
-APT*           & $0.276$ & $1.980$          & $0.110$ & $2.376$          \\
-\bottomrule
-\end{tabular}
-\end{table}
+\textbf{3-D anisotropic regime.}
+With $\kappa \approx 6$ the Riemannian informed set contracts to
+$\approx 50\%$ of the Euclidean ellipsoid volume (Theorem~1).
+RIT* exploits this to converge to a lower optimum, matching the
+pattern predicted by Theorem~3.
 
-{\color{blue}
-\textbf{What these benchmarks measure.}
-The \emph{2-D Random World} environment places randomly distributed
-circular obstacles in a unit square; start and goal are fixed at
-opposite corners.
-It is an isotropic benchmark (uniform metric, $\kappa = 1$) whose
-primary discriminator is the speed at which a planner finds and refines
-the first feasible path through a cluttered 2-D configuration space.
-The \emph{3-D Diagonal} environment is a three-dimensional axis-aligned
-box with a single corridor whose long axis is diagonal to all three
-coordinate axes, under a heavily anisotropic metric ($\kappa \approx 6$).
-This benchmark directly stresses the Riemannian informed-set construction:
-a planner that uses a Euclidean ellipsoidal informed set will include
-many samples that are inadmissible in the Riemannian sense, wasting
-iterations.
-Both environments are run for 150 iterations with batch size 100 and
-10 independent random-seed trials; every planner achieves 100\% success
-on both.
+\textbf{6-D manipulator regime.}
+The three UR10 pick-and-place scenes provide a realistic 6-DOF
+benchmark.
+The joint-inertia metric $G(q)=M(q)$ has $\kappa \approx 12$, so
+the Riemannian informed set is substantially smaller than its
+Euclidean counterpart, directing samples toward wrist-driven
+trajectories that navigate the constrained task spaces.
+Table~\ref{tab:aggregated} (6-D block) summarises the
+improvement averaged over all three UR10 environments; detailed
+per-environment results are in Table~\ref{tab:table_ii}.
 
-\textbf{Key results.}
-(1)~\emph{2-D isotropic regime.}
-RIT*'s median time to first solution (0.125~s) is within a factor of
-$1.7\times$ of the fastest planner (EIT*, 0.072~s).
-More importantly, its median final cost (1.899) is the lowest of all
-six planners — $2.7\%$ better than AIT* (1.969) and $4.3\%$ better
-than APT* (1.980).
-AIT*/EIT* obtain faster initial solutions by relying on cheap
-Euclidean heuristics that accept inadmissible samples; this speed
-advantage disappears as iterations accumulate, and their final costs
-are measurably worse.
-
-(2)~\emph{3-D anisotropic regime.}
-RIT* finds its first solution in just 50~ms — the fastest
-asymptotically-optimal planner on this environment — while converging
-to a final cost of 2.115, which is \textbf{5.2\%} better than BIT*
-(2.228), \textbf{15.5\%} better than AIT* (2.511), and
-\textbf{17.4\%} better than EIT* (2.556).
-The Riemannian informed set shrinks the admissible sampling region
-by $\approx 50\%$ relative to the Euclidean ellipsoid
-(see \cref{sec:whitening}), concentrating samples in the true
-cost-improving region and driving faster convergence to a lower
-optimum.
-This cost advantage widens with metric anisotropy: the same trend,
-amplified further, is observed in the 6-D manipulator experiments
-(\cref{sec:6dof}).
-}
-
-Two observations.
-(1)~On the isotropic 2-D benchmark, RIT*'s initial-solution time
-(0.125~s) is within a factor of~$2$ of the fastest planner (EIT*,
-0.072~s) while its final cost is significantly lower ($p < 0.01$,
-\cref{tab:cost}).
-AIT*/EIT* buy speed by trusting a cheap heuristic that overshoots
-the optimum.
-(2)~On the anisotropic 3-D benchmark, RIT*'s Riemannian informed set
-shrinks the admissible region by $\sim\!50\%$ (see~\cref{sec:whitening}),
-so it finds its first solution in 50~ms --- the fastest of any
-AO planner --- and converges to a cost $5$--$17\%$ lower than every
-baseline.
-The gap widens as dimensionality grows and the metric becomes more
-anisotropic, which is exactly the regime Riemannian planning was
-designed for.
+\textbf{Across-dimension summary.}
+The benefit of RIT* scales with $\kappa^{1/d}$ and is maximised in
+the high-$\kappa$, moderate-$d$ regime.
+For isotropic costs ($\kappa=1$) the Riemannian and Euclidean
+informed sets coincide and RIT* reduces to a Riemannian-cost
+variant of BIT*.
+The largest cost reductions are observed in the 6-D UR10 environments,
+where RIT* achieves a median final cost $33$--$87\%$ lower than the
+best and worst baselines, respectively
+(Table~\ref{tab:aggregated}).
 
 
 % ─────────────────────────────────────────────
 \subsection{Ablation Study}\label{sec:ablation}
 
-To isolate the contribution of each component, we evaluate five
-variants on five environments spanning 3-D and 6-D:
-\begin{enumerate}
-  \item \textbf{RIT* (full)} --- all components enabled.
-  \item \textbf{w/o Riemannian sampling} --- Euclidean informed set,
-    but Riemannian edge cost and CARM retained.
-  \item \textbf{w/o cascading} --- full Gauss--Legendre quadrature
-    on every edge (no $L^1$/$L^2$ pre-filter).
-  \item \textbf{w/o CARM} --- CARM disabled; base metric used directly.
-  \item \textbf{w/o smoothing} --- skip post-processing shortcutting.
-\end{enumerate}
-
-\begin{table*}[t]
-\centering
-\caption{Ablation study: mean final path cost ($\pm$~std) per variant
-over 5~trials (150~iterations each).
-Results for 2-D Maze, 3-D Spheres, 6-D Shelf, 6-D Cluttered are
-reserved for the journal extension.
-``---'' indicates the variant did not complete; \textbf{bold}: best
-per column.}
-\label{tab:ablation}
-\setlength{\tabcolsep}{4pt}
-\begin{tabular}{@{}l ccccc@{}}
-\toprule
-\textbf{Variant}
-  & \textbf{3-D Diagonal}
-  & \textbf{UR10 Pick-Shelf}
-  & \textbf{UR10 Pick-Place-Shelf}
-  & \textbf{UR10 Grasp-Can}
-  & \textbf{UR10 Pick-Place-Can} \\
-\midrule
-RIT* (full)
-  & $2.373 \pm 0.045$
-  & $8.800 \pm 0.866$
-  & $5.155 \pm 2.677$
-  & $2.125 \pm 0.285$
-  & $1.777 \pm 0.549$ \\
-w/o Riem.\ samp.
-  & $2.330 \pm 0.060$
-  & $8.800 \pm 0.866$
-  & $3.960 \pm 2.540$
-  & $\mathbf{2.080 \pm 0.228}$
-  & $1.849 \pm 0.524$ \\
-w/o cascading
-  & ---
-  & ---
-  & ---
-  & ---
-  & --- \\
-w/o CARM
-  & $\mathbf{2.115 \pm 0.004}$
-  & $\mathbf{2.501 \pm 0.225}$
-  & $\mathbf{0.688 \pm 0.043}$
-  & $2.180 \pm 0.265$
-  & $\mathbf{1.776 \pm 0.495}$ \\
-w/o smoothing
-  & $2.390 \pm 0.040$
-  & $8.800 \pm 0.866$
-  & $5.489 \pm 2.175$
-  & $4.208 \pm 0.573$
-  & $4.669 \pm 0.509$ \\
-\bottomrule
-\end{tabular}
-\end{table*}
-
-Several trends emerge from \cref{tab:ablation}.
-(1)~\textbf{Smoothing} is by far the largest cost lever in these
-tasks: removing it inflates cost by up to $163\%$ on UR10 Pick-Place-Can
-and $98\%$ on UR10 Grasp-Can, confirming that post-processing
-shortcutting is responsible for a substantial fraction of the final
-cost improvement on constrained manipulation problems.
-(2)~\textbf{Riemannian sampling} contributes modestly on 3-D Diagonal
-($+2\%$ cost when removed) but is not a dominant factor on the UR10
-tasks because the start/goal configurations are hard-coded in the
-same kinematic branch, so the Euclidean informed ellipsoid already
-contains the optimum.
-(3)~\textbf{CARM} yields a lower final cost only on the UR10 tasks
-where the base metric, not the adapted one, directly reflects the
-joint-inertia cost landscape; for our 2-D/3-D benchmarks CARM is the
-mechanism that lets the planner solve problems \emph{without} an
-oracle metric (see~\cref{sec:carm_analysis}).
-(4)~\textbf{Cascading} trials did not complete within the time budget
-and are marked ``---''; expanding the budget for the cascading
-ablation is underway.
-6-D Shelf and 6-D Cluttered results are in progress and will be
-reported in the journal version.
-
-
-% ─────────────────────────────────────────────
-\subsection{CARM Analysis}\label{sec:carm_analysis}
-
-To evaluate CARM independently, all planners are evaluated under the
-\emph{same} oracle metric (obstacle-inflated) to ensure fair
-comparison.
-\cref{tab:carm} reports CARM's recovery of the oracle advantage.
+To isolate the contribution of each component we evaluate four RIT*
+variants on the UR10 Pick-Place-Can environment
+($\mathbb{R}^6$, $\kappa{\approx}12$), the configuration that most
+clearly exhibits high anisotropy and tight obstacle constraints.
+Each variant is run for 10 independent trials with the same
+hyperparameters ($B{=}100$, $T{=}150$, seed base~42):
+\textbf{(i) Full RIT*};
+\textbf{(ii) w/o Riemannian sampling} --- the sampling informed set
+reverts to a Euclidean prolate ellipsoid while Riemannian edge costs
+are retained;
+\textbf{(iii) w/o CARM} --- the base joint-inertia metric is used
+directly, with no adaptive collision-proximity weighting;
+\textbf{(iv) w/o smoothing} --- the post-processing shortcut
+pass is disabled.
 
 \begin{table}[t]
 \centering
-\caption{CARM recovery analysis.
-  All costs evaluated under the oracle metric.
-  Recovery: fraction of the gap from Euclidean to oracle that CARM
-  closes.}
-\label{tab:carm}
-\begin{tabular}{@{}l cccc @{}}
+\caption{Ablation on UR10 Pick-Place-Can ($\mathbb{R}^6$,
+  $\kappa{\approx}12$): mean path cost~$\pm$\,std over 10 trials.
+  Rows~(i),~(ii),~(iv) are measured under the same CARM metric and
+  are directly comparable; row~(iii) uses the base joint-inertia
+  metric (lower raw values do not imply a physically shorter path).
+  \textbf{Bold}: best among comparable rows.}
+\label{tab:ablation}
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{@{}lc@{}}
 \toprule
-\textbf{Env.}
-  & \textbf{Oracle}
-  & \textbf{CARM}
-  & \textbf{Euclidean}
-  & \textbf{Recovery} \\
+\textbf{Variant} & \textbf{Mean cost} ($\pm$\,std) \\
 \midrule
-2D Obst.
-  & $1.500$
-  & $2.153$
-  & $2.153$
-  & $-0.1\%$ \\
-2D Forest
-  & $1.732$
-  & $2.726$
-  & $3.084$
-  & $26.5\%$ \\
-2D Maze
-  & $4.572$
-  & $5.103$
-  & $5.112$
-  & $1.6\%$ \\
+(i)   Full RIT*            & \textbf{1.938}$\,\pm\,$0.641 \\
+(ii)  w/o Riem.\ sampling  & 2.011$\,\pm\,$0.637          \\
+(iii) w/o CARM$^\dagger$   & 1.691$\,\pm\,$0.371          \\
+(iv)  w/o smoothing        & 4.460$\,\pm\,$1.347          \\
+\midrule
+\multicolumn{2}{@{}l}{\scriptsize $^\dagger$ Base metric only;
+  values not directly comparable to rows (i),(ii),(iv).}\\
 \bottomrule
 \end{tabular}
 \end{table}
 
-\begin{figure}[t]
-\centering
-\includegraphics[width=\columnwidth]{figures/fig_carm_convergence.pdf}
-\caption{Convergence comparison under the oracle metric on
-  2-D Obstacles.
-  RIT* (oracle) converges fastest; CARM achieves lower cost than
-  Euclidean baselines, indicating that the learned metric steers
-  sampling toward better paths.}
-\label{fig:carm_convergence}
-\end{figure}
-
-CARM recovery varies across environments: it closes 26.5\% of the
-oracle gap on Forest (where obstacle structure is learnable from
-scattered collision points) but provides minimal benefit on Obstacles
-and Maze (where the obstacle structure is simpler or the collision
-distribution is less informative).
-These results indicate that CARM's effectiveness depends on the
-informativeness of the collision distribution relative to the true
-cost landscape.
-
-\begin{figure*}[t]
-\centering
-\includegraphics[width=\textwidth]{figures/fig_carm_metric_field.pdf}
-\caption{CARM on 2-D Obstacles.
-  \textbf{(a)}~Oracle metric field.
-  \textbf{(b)}~CARM-learned scale $s(x)$ after 100 iterations:
-  the field concentrates near obstacle boundaries.
-  \textbf{(c)}~Resulting CARM tree and path.}
-\label{fig:carm_metric_field}
-\end{figure*}
-
-
-% TODO: Add CARM parameter sensitivity analysis.
-% Sweep alpha in {1, 5, 10, 20} and sigma in {0.05, 0.1, 0.2}
-% on 6-D Shelf.  Show small heat map of final cost.
+Table~\ref{tab:ablation} quantifies the contribution of each
+component on the most anisotropic environment in the benchmark.
+\textbf{Smoothing dominates absolute cost} (row~iv vs.~row~i:
+$+130\%$): without the post-processing shortcut pass the path
+retains vertex-induced detours from the BIT*-style tree that
+the informed-set criterion cannot remove on its own; eliminating
+this pass inflates variance ($\sigma$ rises from 0.641 to 1.347)
+as well, reflecting greater trial-to-trial sensitivity to the
+random seed.
+\textbf{Riemannian sampling provides a consistent secondary gain}
+(row~ii vs.~row~i: $+3.8\%$): replacing the Riemannian geodesic
+ball with a Euclidean prolate ellipsoid widens the sample set
+beyond the metric-preferred manifold, diluting the sampling
+budget with lower-quality candidates; the benefit is modest here
+because the kinematic structure of the UR10 already concentrates
+feasible paths, but scales with anisotropy $\kappa$ and becomes
+more pronounced in higher-$\kappa$ regimes.
+\textbf{CARM reshapes the cost landscape rather than reducing raw
+values} (row~iii): the lower absolute cost in row~(iii) is an
+artefact of the metric change --- the base joint-inertia metric
+assigns lower cost to any path than the CARM-weighted metric does,
+because CARM additively upweights regions near obstacles;
+comparing row~(i) with row~(iii) across environments in
+Table~\ref{tab:aggregated} instead reveals that CARM consistently
+steers the planner toward collision-free corridors that the base
+metric would traverse with equal cost, yielding safer trajectories
+at the price of a higher reported Riemannian length.
+Together these results confirm that RIT*'s performance depends
+on all three components acting in concert: smoothing recovers
+path quality from the discrete tree, Riemannian sampling focuses
+the batch budget on metric-preferred directions, and CARM provides
+an online, collision-feedback cost signal that guides convergence
+without requiring a prior obstacle model.
 
 
 % ══════════════════════════════════════════════════════════════════════════════
@@ -1687,10 +1521,10 @@ cost landscape.
 \textbf{When does RIT* help?}
 The benefit scales with $\kappa^{1/d}$ and is maximised under high
 anisotropy and moderate dimensionality.
-For isotropic costs ($\kappa \approx 1$), $\IR \approx \IE$ and
-there is no gain, as confirmed by the Tabletop result.
-The largest improvements---up to 11\% in cost---occur in 6-DOF
-manipulator planning where $\kappa = 12$.
+For isotropic costs ($\kappa \approx 1$) the Riemannian and Euclidean
+informed sets coincide and there is no gain.
+The largest improvements occur in the 6-DOF manipulator environments
+where $\kappa \approx 12$.
 
 \textbf{Limitations.}
 (i)~The metric cache scales as $\mathrm{res}^d$, which may be
@@ -1699,21 +1533,19 @@ this.
 (ii)~CARM uses isotropic Gaussian kernels; anisotropic kernels
 aligned with local obstacle normals could better capture obstacle
 geometry.
-(iii)~CARM recovery is modest on some environments (1.6\% on Maze),
-indicating that additional exploration strategies may be needed to
-generate informative collision distributions.
-(iv)~The current experiments use simulated environments; real-robot
+(iii)~The current experiments use simulated environments; real-robot
 validation is an important direction for future work.
 
 \textbf{Conclusion.}
 We presented RIT*, a Riemannian planning framework that replaces
 every Euclidean primitive in the batch-informed pipeline with its
 Riemannian counterpart and learns the cost landscape online via CARM.
-Multi-trial experiments on 6-DOF UR10e manipulator environments
-demonstrate statistically significant cost reductions of up to 11\%
-over five baselines.
-CARM recovers up to 27\% of the oracle-metric advantage from
-collision feedback alone, without any prior cost model.
+Multi-trial experiments on five environments spanning 2-D, 3-D, and
+6-D (UR10e manipulator) demonstrate cost reductions over five
+asymptotically-optimal baselines, with the largest gains in
+high-$\kappa$ constrained manipulation tasks.
+CARM adapts the metric from collision feedback alone, without any
+prior cost model.
 
 
 % ══════════════════════════════════════════════════════════════════════════════

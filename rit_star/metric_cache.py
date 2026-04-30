@@ -57,16 +57,20 @@ class MetricFieldCache:
         '_is_conformal',
         '_s_min', '_lambda_min',
         '_riemannian_vol_cache',
+        '_collision_step_size', '_min_collision_checks',
     )
 
     def __init__(self, metric: RiemannianMetric, bounds: list,
-                 resolution: int = 32):
+                 resolution: int = 32, collision_step_size: float = 0.01,
+                 min_collision_checks: int = 20):
         self.metric = metric
         self.dim = len(bounds)
         self._lo = np.array([b[0] for b in bounds], dtype=float)
         self._hi = np.array([b[1] for b in bounds], dtype=float)
         self._range = self._hi - self._lo
         self._res = resolution
+        self._collision_step_size = collision_step_size
+        self._min_collision_checks = min_collision_checks
 
         self._is_diagonal = isinstance(metric, DiagonalAnisotropicMetric)
         self._is_euclidean = isinstance(metric, EuclideanMetric)
@@ -342,7 +346,8 @@ class MetricFieldCache:
 
         # For constant metrics, cost is trivial — just do collision checks
         if self._is_euclidean or self._is_diagonal:
-            n = max(n_checks, min(n_checks * 5, int(np.ceil(length / 0.02))))
+            nc = self._min_collision_checks
+            n = max(nc, min(nc * 5, int(np.ceil(length / self._collision_step_size))))
             inv_n = 1.0 / n
             for i in range(n + 1):
                 if not collision_free(x + (i * inv_n) * diff):
@@ -376,13 +381,14 @@ class MetricFieldCache:
 
         # Additional evenly-spaced collision checks for coverage
         # (GL points cluster near endpoints, so uniform checks fill gaps)
-        n_extra = max(n_checks, min(n_checks * 5, int(np.ceil(length / 0.02))))
+        nc = self._min_collision_checks
+        n_extra = max(nc, min(nc * 5, int(np.ceil(length / self._collision_step_size))))
         inv_n = 1.0 / n_extra
         # Precompute skip mask once (avoids a Python generator per iteration)
         gl_ts_arr = _GL_TS_10  # shape (10,)
         for i in range(n_extra + 1):
             t = i * inv_n
-            if np.any(np.abs(gl_ts_arr - t) < 0.02):
+            if np.any(np.abs(gl_ts_arr - t) < self._collision_step_size):
                 continue
             if not collision_free(x + t * diff):
                 return np.inf, False
@@ -409,7 +415,8 @@ class MetricFieldCache:
             return 0.0, True, None
 
         if self._is_euclidean or self._is_diagonal:
-            n = max(n_checks, min(n_checks * 5, int(np.ceil(length / 0.02))))
+            nc = self._min_collision_checks
+            n = max(nc, min(nc * 5, int(np.ceil(length / self._collision_step_size))))
             inv_n = 1.0 / n
             for i in range(n + 1):
                 pt = x + (i * inv_n) * diff
@@ -440,12 +447,13 @@ class MetricFieldCache:
                 Gi = self.G(pt)
                 total += w_i * np.sqrt(max(float(diff @ Gi @ diff), 0.0))
 
-        n_extra = max(n_checks, min(n_checks * 5, int(np.ceil(length / 0.02))))
+        nc = self._min_collision_checks
+        n_extra = max(nc, min(nc * 5, int(np.ceil(length / self._collision_step_size))))
         inv_n = 1.0 / n_extra
         gl_ts_arr = _GL_TS_10
         for i in range(n_extra + 1):
             t = i * inv_n
-            if np.any(np.abs(gl_ts_arr - t) < 0.02):
+            if np.any(np.abs(gl_ts_arr - t) < self._collision_step_size):
                 continue
             pt = x + t * diff
             if not collision_free(pt):

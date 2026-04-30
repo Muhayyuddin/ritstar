@@ -478,22 +478,24 @@ def _save_comparison_figure_2d(env_name, planner_records, xs, xg, bounds):
             ax.scatter(vp[:, 0], vp[:, 1], s=1, c='green',
                        alpha=0.3, zorder=2, edgecolors='none')
 
-        # Obstacles on top of tree
-        _draw_obstacles_2d(ax, obs_key)
-
-        # Path
+        # Path (drawn before obstacles so obstacles appear on top)
         if rec['path'] is not None and len(rec['path']) > 1:
             pa = rec['path']
-            ax.plot(pa[:, 0], pa[:, 1], color=color, lw=3.5,
-                    zorder=6, solid_capstyle='round')
+            ax.plot(pa[:, 0], pa[:, 1], color=color, lw=5.5,
+                    zorder=4, solid_capstyle='round')
+
+        # Obstacles on top of tree and path
+        _draw_obstacles_2d(ax, obs_key)
 
         # Start / Goal markers
-        ax.plot(*xs, 'o', color='#2E7D32', ms=8, zorder=7, mec='white', mew=1.0)
-        ax.plot(*xg, '^', color='#C62828', ms=9, zorder=7, mec='white', mew=0.8)
+        ax.plot(*xs, 'o', color='#2E7D32', ms=8, zorder=9, mec='white', mew=1.0)
+        ax.plot(*xg, '^', color='#C62828', ms=9, zorder=9, mec='white', mew=0.8)
 
         cost_str = f'{rec["cost"]:.4f}' if np.isfinite(rec['cost']) else 'no soln'
+        inf_vol = rec.get('informed_set_volume', np.nan)
+        inf_str = f'  I={inf_vol:.4f}' if np.isfinite(inf_vol) else ''
         ax.set_title(
-            f'{pname}\ncost={cost_str}  time={rec["time"]:.1f}s',
+            f'{pname}\ncost={cost_str}  time={rec["time"]:.1f}s{inf_str}',
             color=color, fontsize=10, fontweight='bold'
         )
 
@@ -529,14 +531,14 @@ def _save_comparison_figure_3d(env_name, planner_records, xs, xg, bounds):
             ax.plot([p1[0], p2[0]], [p1[1], p2[1]], [p1[2], p2[2]],
                     color='green', lw=0.4, alpha=0.5, zorder=1)
 
-        # Obstacles on top of tree
-        _draw_obstacles_3d_static(ax, env_name)
-
-        # Path
+        # Path (drawn before obstacles so obstacles appear on top)
         if rec['path'] is not None and len(rec['path']) > 1:
             pa = rec['path']
-            ax.plot(pa[:, 0], pa[:, 1], pa[:, 2], color=color, lw=3.5,
-                    zorder=6, solid_capstyle='round')
+            ax.plot(pa[:, 0], pa[:, 1], pa[:, 2], color=color, lw=5.5,
+                    zorder=4, solid_capstyle='round')
+
+        # Obstacles on top of tree and path
+        _draw_obstacles_3d_static(ax, env_name)
 
         # Start / Goal markers
         ax.scatter(*xs, c='#2E7D32', s=80, zorder=7, marker='o')
@@ -882,6 +884,8 @@ def run(cfg: dict):
                             'path': np.array(path) if path else None,
                             'cost': cost,
                             'time': elapsed,
+                            'informed_set_volume': (stats[-1].get('informed_set_volume', np.nan)
+                                                    if stats else np.nan),
                         })
                     elif dim == 3:
                         if path:
@@ -895,6 +899,8 @@ def run(cfg: dict):
                             'path': np.array(path) if path else None,
                             'cost': cost,
                             'time': elapsed,
+                            'informed_set_volume': (stats[-1].get('informed_set_volume', np.nan)
+                                                    if stats else np.nan),
                         })
 
                 del planner
@@ -1047,18 +1053,16 @@ def run_benchmark(cfg: dict):
 # Registry of 6-D GUI demos. Key = short name used in config;
 # value = (script filename, short description for the log).
 PYBULLET_DEMO_REGISTRY = {
-    'UR10_grasp_can':          ('UR10_grasp_can.py',
-                                'Top-down grasp of can next to kraft box wall'),
-    'UR10_pick_place_can':     ('UR10_pick_place_can.py',
-                                'Pick-and-place can over the wall'),
-    'UR10_pick_shelf':         ('UR10_pick_shelf.py',
-                                'Side-grasp mustard bottle from shelf'),
-    'UR10_pick_place_shelf':   ('UR10_pick_place_shelf.py',
-                                'Place grasped bottle on top of shelf'),
-    'UR10_pick_place_drill':   ('UR10_pick_place_drill.py',
-                                'Pick power drill by handle and carry over wall'),
-    'test_env':                ('test_env.py',
-                                'Static shelf scene — arm held at fixed q'),
+    'UR10_grasp_can':        ('UR10_grasp_can.py',
+                              'Top-down grasp of can next to kraft box wall'),
+    'UR10_pick_place_can':   ('UR10_pick_place_can.py',
+                              'Pick-and-place can over the wall'),
+    'UR10_pick_shelf':       ('UR10_pick_shelf.py',
+                              'Side-grasp mustard bottle from shelf'),
+    'UR10_pick_place_shelf': ('UR10_pick_place_shelf.py',
+                              'Place grasped bottle on top of shelf'),
+    'test_env':              ('test_env.py',
+                              'Static shelf scene — arm held at fixed q'),
 }
 
 

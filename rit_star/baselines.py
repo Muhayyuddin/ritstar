@@ -217,7 +217,7 @@ class InformedRRTStar:
                 ec = riemannian_edge_cost(v.x, s, self.metric)
                 nc = v.cost + ec
                 if nc < best_cost:
-                    if check_edge_collision(v.x, s, self.collision_free, n_checks=10):
+                    if check_edge_collision(v.x, s, self.collision_free, n_checks=20):
                         best_cost = nc
                         best_parent = v
             if best_parent is None:
@@ -259,7 +259,7 @@ class InformedRRTStar:
                 ec = riemannian_edge_cost(nn.x, v.x, self.metric)
                 nc = nn.cost + ec
                 if nc < v.cost:
-                    if check_edge_collision(nn.x, v.x, self.collision_free, n_checks=10):
+                    if check_edge_collision(nn.x, v.x, self.collision_free, n_checks=20):
                         if v.parent is not None and v in v.parent.children:
                             v.parent.children.remove(v)
                         v.parent = nn
@@ -536,7 +536,7 @@ class BITStar:
                 processed.add(si)
                 continue
 
-            if not check_edge_collision(v.x, s, self.collision_free, n_checks=10):
+            if not check_edge_collision(v.x, s, self.collision_free, n_checks=20):
                 continue
 
             ec = riemannian_edge_cost(v.x, s, self.metric)
@@ -619,7 +619,7 @@ class BITStar:
                 if nc < v.cost:
                     if c_best < np.inf and nc + v.heuristic >= c_best:
                         continue
-                    if check_edge_collision(nn.x, v.x, self.collision_free, n_checks=10):
+                    if check_edge_collision(nn.x, v.x, self.collision_free, n_checks=20):
                         if v.parent is not None and v in v.parent.children:
                             v.parent.children.remove(v)
                         v.parent = nn
@@ -888,7 +888,7 @@ class AITStar:
             if v.cost + c_hat >= g_x:
                 continue
 
-            if not check_edge_collision(v.x, s, self.collision_free, n_checks=10):
+            if not check_edge_collision(v.x, s, self.collision_free, n_checks=20):
                 continue
 
             ec = riemannian_edge_cost(v.x, s, self.metric)
@@ -1193,7 +1193,7 @@ class EITStar:
             if v.cost + c_hat >= g_x:
                 continue
 
-            if not check_edge_collision(v.x, s, self.collision_free, n_checks=10):
+            if not check_edge_collision(v.x, s, self.collision_free, n_checks=20):
                 continue
 
             ec = riemannian_edge_cost(v.x, s, self.metric)
@@ -1349,7 +1349,7 @@ def _extend_tree_apt(self, samples):
             ec = riemannian_edge_cost(v.x, s, self.metric)
             nc = v.cost + ec
             if nc < best_cost:
-                if check_edge_collision(v.x, s, self.collision_free, n_checks=10):
+                if check_edge_collision(v.x, s, self.collision_free, n_checks=20):
                     best_cost = nc
                     best_parent = v
         if best_parent is None:
@@ -1391,7 +1391,7 @@ def _extend_tree_apt(self, samples):
             ec = riemannian_edge_cost(nn.x, v.x, self.metric)
             nc = nn.cost + ec
             if nc < v.cost:
-                if check_edge_collision(nn.x, v.x, self.collision_free, n_checks=10):
+                if check_edge_collision(nn.x, v.x, self.collision_free, n_checks=20):
                     if v.parent is not None and v in v.parent.children:
                         v.parent.children.remove(v)
                     v.parent = nn

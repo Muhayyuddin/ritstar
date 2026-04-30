@@ -196,13 +196,13 @@ def plot_benchmark(env_name, results, planners, out_dir):
         ls = PLANNER_LINESTYLES.get(pname, '-')
         ax_sr.plot(t_grid, sr, color=color, lw=2.4, ls=ls, label=pname)
 
-    ax_sr.set_ylabel('Success [%]', fontweight='bold')
+    ax_sr.set_ylabel('Success [%]')
     ax_sr.set_ylim(-5, 105)
     ax_sr.set_yticks([0, 25, 50, 75, 100])
     ax_sr.set_xscale('log')
     ax_sr.grid(True, which='major', alpha=0.30)
     ax_sr.grid(True, which='minor', alpha=0.12, linestyle=':')
-    ax_sr.set_title(env_name, fontweight='bold', pad=6)
+    ax_sr.set_title(env_name, pad=6)
 
     # ── Bottom: Cost vs time (median + IQR) ──
     finite_mins = []
@@ -236,8 +236,8 @@ def plot_benchmark(env_name, results, planners, out_dir):
             if len(fc) > 0:
                 finite_mins.append(np.nanmin(fc))
 
-    ax_cost.set_xlabel('Computation time [s]', fontweight='bold')
-    ax_cost.set_ylabel('Cost', fontweight='bold')
+    ax_cost.set_xlabel('Computation time [s]')
+    ax_cost.set_ylabel('Cost')
     ax_cost.set_xscale('log')
     ax_cost.grid(True, which='major', alpha=0.30)
     ax_cost.grid(True, which='minor', alpha=0.12, linestyle=':')
@@ -267,16 +267,17 @@ def plot_benchmark(env_name, results, planners, out_dir):
                 ymax = max(ymax, np.median(first_costs) * 1.05)
             ax_cost.set_ylim(ymin, ymax)
 
-    # Legend below the bottom plot — 2 columns, bold header, tight spacing
+    # Legend below the bottom plot — 2 columns, tight spacing
     handles, labels = ax_cost.get_legend_handles_labels()
     fig.legend(handles, labels, loc='lower center',
-               ncol=min(len(planners), 3), fontsize=10,
-               bbox_to_anchor=(0.5, -0.04),
+               ncol=min(len(planners), 3), fontsize=9,
+               bbox_to_anchor=(0.5, 0.0),
                frameon=True, fancybox=True, shadow=False,
                edgecolor='#bfbfbf', handlelength=2.0,
                columnspacing=1.0, handletextpad=0.5)
 
     fig.tight_layout(pad=0.4)
+    fig.subplots_adjust(bottom=0.18)
 
     # Save (PDF for vector paper inclusion, PNG for quick preview)
     safe = env_name.lower().replace(' ', '_').replace('-', '_')
@@ -358,7 +359,7 @@ def plot_combined(all_results, planners, out_dir):
         ax_sr.set_yticks([0, 50, 100])
         ax_sr.set_xscale('log')
         ax_sr.grid(True, alpha=0.25)
-        ax_sr.set_title(env_name, fontweight='bold', fontsize=10)
+        ax_sr.set_title(env_name, fontsize=10)
         ax_sr.tick_params(labelbottom=False)
 
         # Cost
@@ -409,14 +410,14 @@ def plot_combined(all_results, planners, out_dir):
         axes[base_row][col].set_visible(False)
         axes[base_row + 1][col].set_visible(False)
 
-    # Shared legend
+    # Shared legend below all panels
     handles, labels = axes[0][0].get_legend_handles_labels()
-    fig.legend(handles, labels, loc='upper center',
+    fig.legend(handles, labels, loc='lower center',
                ncol=min(len(planners), 6), fontsize=8,
-               bbox_to_anchor=(0.5, 1.01),
+               bbox_to_anchor=(0.5, 0.0),
                frameon=True, fancybox=True, edgecolor='#cccccc')
 
-    fig.tight_layout(rect=[0, 0, 1, 0.97])
+    fig.tight_layout(rect=[0, 0.04, 1, 1])
 
     out_path = os.path.join(out_dir, 'benchmark_combined.pdf')
     out_png = os.path.join(out_dir, 'benchmark_combined.png')
@@ -733,6 +734,223 @@ def generate_table_aggregated(all_results, planners, out_dir):
         for r in rows:
             writer.writerow(r)
     print(f'\n  -> Aggregated CSV saved to {csv_path}')
+
+
+# ── Aggregated-by-dimension benchmark tables ─────────────────────────
+
+def generate_table_aggregated_by_dim(all_results, planners, out_dir,
+                                     env_dim_map: dict):
+    """Generate one aggregated Table-II style table per dimension group.
+
+    Averages per-env medians over all 2D, 3D, and 6D environments
+    separately, producing:
+      - Console tables for each group present in ``all_results``
+      - benchmark_aggregated_2d.csv / _3d.csv / _6d.csv
+      - benchmark_aggregated_by_dim.tex  (LaTeX, one subtable per group)
+
+    Parameters
+    ----------
+    all_results : dict  env_name -> {planner_name -> list[trial_stats]}
+    planners    : list of canonical planner names
+    out_dir     : output directory path
+    env_dim_map : dict  env_name -> dim_tag  (e.g. '2d', '3d', '6d',
+                  '2d_euclid').  Used to bucket environments.
+    """
+    import csv
+
+    # ── bucket environments by dimension group ────────────────────────
+    DIM_LABELS = {'2d': '2D', '2d_euclid': '2D', '3d': '3D', '6d': '6D'}
+    groups: dict[str, list[str]] = {'2D': [], '3D': [], '6D': []}
+    for env_name in all_results:
+        raw_tag = env_dim_map.get(env_name, '')
+        label = DIM_LABELS.get(raw_tag.lower(), '')
+        if label:
+            groups[label].append(env_name)
+
+    # ── helper: compute aggregated rows for a list of env names ──────
+    def _agg_rows(env_names):
+        rows = []
+        for pname in planners:
+            env_t_init, env_c_init, env_c_final, env_success = [], [], [], []
+            for env_name in env_names:
+                trial_stats_list = all_results[env_name].get(pname)
+                if not trial_stats_list:
+                    continue
+                init_times, init_costs, final_costs = [], [], []
+                for stats in trial_stats_list:
+                    if not stats:
+                        init_times.append(np.inf)
+                        init_costs.append(np.inf)
+                        final_costs.append(np.inf)
+                        continue
+                    first_t, first_c = np.inf, np.inf
+                    for s in stats:
+                        if np.isfinite(s['c_best']):
+                            first_t = s['time_elapsed']
+                            first_c = s['c_best']
+                            break
+                    init_times.append(first_t)
+                    init_costs.append(first_c)
+                    final_costs.append(stats[-1]['c_best'])
+                init_times  = np.asarray(init_times)
+                init_costs  = np.asarray(init_costs)
+                final_costs = np.asarray(final_costs)
+                env_success.append(
+                    float(np.sum(np.isfinite(init_costs))) / len(init_costs))
+                fi_t = init_times[np.isfinite(init_times)]
+                fi_c = init_costs[np.isfinite(init_costs)]
+                fi_f = final_costs[np.isfinite(final_costs)]
+                if fi_t.size:
+                    env_t_init.append(float(np.median(fi_t)))
+                if fi_c.size:
+                    env_c_init.append(float(np.median(fi_c)))
+                if fi_f.size:
+                    env_c_final.append(float(np.median(fi_f)))
+            rows.append({
+                'planner':          pname,
+                'n_envs':           len(env_names),
+                't_init_med_avg':   float(np.mean(env_t_init))  if env_t_init  else np.inf,
+                'c_init_med_avg':   float(np.mean(env_c_init))  if env_c_init  else np.inf,
+                'c_final_med_avg':  float(np.mean(env_c_final)) if env_c_final else np.inf,
+                'success_avg':      float(np.mean(env_success)) if env_success else 0.0,
+            })
+        return rows
+
+    # ── header formatter ──────────────────────────────────────────────
+    FIELDNAMES = ['planner', 'n_envs',
+                  't_init_med_avg', 'c_init_med_avg',
+                  'c_final_med_avg', 'success_avg']
+
+    def _print_group(dim_label, env_names, rows):
+        print('\n' + '=' * 90)
+        print(f'  AGGREGATED TABLE — {dim_label} environments '
+              f'({len(env_names)} env(s): {", ".join(env_names)})')
+        print('=' * 90)
+        print(f'  {"Planner":<16}{"t_init_med":>14}{"c_init_med":>14}'
+              f'{"c_final_med":>14}{"Success":>12}')
+        print('  ' + '-' * 80)
+
+        # find best values for highlighting
+        finite_t   = [r['t_init_med_avg']  for r in rows if np.isfinite(r['t_init_med_avg'])]
+        finite_ci  = [r['c_init_med_avg']  for r in rows if np.isfinite(r['c_init_med_avg'])]
+        finite_cf  = [r['c_final_med_avg'] for r in rows if np.isfinite(r['c_final_med_avg'])]
+        best_t  = min(finite_t)  if finite_t  else np.inf
+        best_ci = min(finite_ci) if finite_ci else np.inf
+        best_cf = min(finite_cf) if finite_cf else np.inf
+        best_sr = max(r['success_avg'] for r in rows)
+
+        def _fmt(val, best):
+            if not np.isfinite(val):
+                return '           inf'
+            s = f'{val:14.4f}'
+            if abs(val - best) < 1e-9:
+                s = f'  ** {val:.4f}  '
+            return s
+
+        for r in rows:
+            sr = r['success_avg'] * 100
+            sr_s = f'{sr:11.0f}%'
+            if abs(r['success_avg'] - best_sr) < 1e-9:
+                sr_s = f'  ** {sr:.0f}%'
+            print(f'  {r["planner"]:<16}'
+                  f'{_fmt(r["t_init_med_avg"],  best_t)}'
+                  f'{_fmt(r["c_init_med_avg"],  best_ci)}'
+                  f'{_fmt(r["c_final_med_avg"], best_cf)}'
+                  f'{sr_s}')
+        print('  ' + '-' * 80)
+
+    # ── LaTeX accumulator ─────────────────────────────────────────────
+    tex_lines = [
+        r'% Aggregated benchmark tables by dimension',
+        r'% Auto-generated by generate_table_aggregated_by_dim()',
+        '',
+    ]
+
+    def _latex_group(dim_label, env_names, rows):
+        safe_label = dim_label.replace(' ', '_').lower()
+        tex_lines.append(r'\begin{table}[t]')
+        tex_lines.append(r'\centering')
+        tex_lines.append(
+            r'\caption{Average performance across all \textbf{' + dim_label
+            + r'} environments (' + str(len(env_names)) + r' envs).}')
+        tex_lines.append(
+            r'\label{tab:agg_' + safe_label + '}')
+        tex_lines.append(r'\resizebox{\columnwidth}{!}{%')
+        tex_lines.append(r'\begin{tabular}{|l|r|r|r|r|}')
+        tex_lines.append(r'\hline')
+        tex_lines.append(
+            r'Planner & $\bar{t}^{\mathrm{med}}_{\mathrm{init}}$ (s) '
+            r'& $\bar{c}^{\mathrm{med}}_{\mathrm{init}}$ '
+            r'& $\bar{c}^{\mathrm{med}}_{\mathrm{final}}$ '
+            r'& Success (\%) \\'
+        )
+        tex_lines.append(r'\hline')
+
+        finite_t  = [r['t_init_med_avg']  for r in rows if np.isfinite(r['t_init_med_avg'])]
+        finite_ci = [r['c_init_med_avg']  for r in rows if np.isfinite(r['c_init_med_avg'])]
+        finite_cf = [r['c_final_med_avg'] for r in rows if np.isfinite(r['c_final_med_avg'])]
+        best_t  = min(finite_t)  if finite_t  else np.inf
+        best_ci = min(finite_ci) if finite_ci else np.inf
+        best_cf = min(finite_cf) if finite_cf else np.inf
+        best_sr = max(r['success_avg'] for r in rows)
+
+        def _tex_val(val, best):
+            if not np.isfinite(val):
+                return r'$\infty$'
+            s = f'{val:.4f}'
+            if abs(val - best) < 1e-9:
+                s = r'\textbf{' + s + '}'
+            return s
+
+        for r in rows:
+            sr = r['success_avg'] * 100
+            sr_s = f'{sr:.0f}'
+            if abs(r['success_avg'] - best_sr) < 1e-9:
+                sr_s = r'\textbf{' + sr_s + '}'
+            pname = r['planner'].replace('*', r'$^*$')
+            tex_lines.append(
+                f'{pname} & '
+                f'{_tex_val(r["t_init_med_avg"], best_t)} & '
+                f'{_tex_val(r["c_init_med_avg"], best_ci)} & '
+                f'{_tex_val(r["c_final_med_avg"], best_cf)} & '
+                f'{sr_s} \\\\'
+            )
+
+        tex_lines.append(r'\hline')
+        tex_lines.append(r'\end{tabular}}')
+        tex_lines.append(r'\end{table}')
+        tex_lines.append('')
+
+    # ── process each dimension group ──────────────────────────────────
+    found_any = False
+    for dim_label in ('2D', '3D', '6D'):
+        env_names = groups[dim_label]
+        if not env_names:
+            continue
+        found_any = True
+        rows = _agg_rows(env_names)
+        _print_group(dim_label, env_names, rows)
+        _latex_group(dim_label, env_names, rows)
+
+        # per-group CSV
+        csv_suffix = dim_label.lower()
+        csv_path = os.path.join(out_dir, f'benchmark_aggregated_{csv_suffix}.csv')
+        with open(csv_path, 'w', newline='') as f:
+            writer = csv.DictWriter(f, fieldnames=FIELDNAMES)
+            writer.writeheader()
+            for r in rows:
+                writer.writerow(r)
+        print(f'  -> Aggregated {dim_label} CSV saved to {csv_path}')
+
+    if not found_any:
+        print('  No data for aggregated-by-dim tables.')
+        return
+
+    # combined LaTeX
+    tex_path = os.path.join(out_dir, 'benchmark_aggregated_by_dim.tex')
+    with open(tex_path, 'w') as f:
+        f.write('\n'.join(tex_lines))
+    print(f'  -> Aggregated-by-dim LaTeX saved to {tex_path}')
 
 
 # ── Table III-style benchmark table (APT* paper format) ──────────────

@@ -339,9 +339,6 @@ def env_2d_joint_arm() -> EnvTuple:
     forward kinematics.  Arm links: L₁=0.5, L₂=0.4.
     Metric: JointInertiaMetric2D(I₁=4.0, I₂=1.0).
 
-    Expected behaviour: RIT* preferentially moves joint 2 (cheap,
-    lower inertia) and avoids unnecessary joint-1 motion.
-
     Returns
     -------
     (collision_checker, edge_cost, metric, x_start, x_goal, bounds)
@@ -1354,7 +1351,8 @@ def env_2d_random_world() -> EnvTuple:
     the workspace so that rectangles may partially extend outside
     bounds.  Start and goal are guaranteed collision-free.
 
-    Metric: ObstacleInflatedMetric built from rectangle centres.
+    Metric: EuclideanMetric (G = I, κ = 1) — isotropic benchmark
+    matching the paper's stated condition number of 1.
 
     Returns
     -------
@@ -1369,8 +1367,7 @@ def env_2d_random_world() -> EnvTuple:
     min_side = 0.1
     max_side = 0.2
 
-    rects   = []   # list of (lo, hi)
-    centres = []   # for the metric
+    rects   = []
     for _ in range(n_obs * 50):
         if len(rects) >= n_obs:
             break
@@ -1381,7 +1378,6 @@ def env_2d_random_world() -> EnvTuple:
         h = rng.uniform(min_side, max_side)
         lo = np.array([ax_, ay_])
         hi = np.array([ax_ + w, ay_ + h])
-        cx, cy = ax_ + w / 2.0, ay_ + h / 2.0
         # Ensure start and goal stay free (generous clearance)
         clr = 0.06
         if (lo[0] <= x_start[0] + clr and hi[0] >= x_start[0] - clr and
@@ -1391,15 +1387,52 @@ def env_2d_random_world() -> EnvTuple:
             lo[1] <= x_goal[1] + clr and hi[1] >= x_goal[1] - clr):
             continue
         rects.append((lo, hi))
-        centres.append(np.array([cx, cy]))
 
-    rects   = rects[:n_obs]
-    centres = np.array(centres[:n_obs])
+    rects = rects[:n_obs]
+
+    # Remove an accidental ultra-narrow vertical slit by forcing a slight
+    # overlap between the tightest vertically adjacent obstacle pair.
+    min_gap = np.inf
+    best_pair = None  # (upper_idx, gap)
+    for i in range(len(rects)):
+        lo_i, hi_i = rects[i]
+        for j in range(i + 1, len(rects)):
+            lo_j, hi_j = rects[j]
+            x_overlap = min(hi_i[0], hi_j[0]) - max(lo_i[0], lo_j[0])
+            if x_overlap < 0.04:
+                continue
+            if hi_i[1] <= lo_j[1]:
+                gap = lo_j[1] - hi_i[1]
+                upper_idx = j
+            elif hi_j[1] <= lo_i[1]:
+                gap = lo_i[1] - hi_j[1]
+                upper_idx = i
+            else:
+                continue
+            if gap < min_gap:
+                min_gap = gap
+                best_pair = (upper_idx, gap)
+
+    if best_pair is not None and min_gap < 0.05:
+        upper_idx, gap = best_pair
+        target_gap = -0.02
+        dy = target_gap - gap
+        if abs(dy) > 1e-12:
+            lo_u, hi_u = rects[upper_idx]
+            new_lo = lo_u + np.array([0.0, dy])
+            new_hi = hi_u + np.array([0.0, dy])
+            clr = 0.06
+            s_ok = not (new_lo[0] <= x_start[0] + clr and new_hi[0] >= x_start[0] - clr and
+                        new_lo[1] <= x_start[1] + clr and new_hi[1] >= x_start[1] - clr)
+            g_ok = not (new_lo[0] <= x_goal[0] + clr and new_hi[0] >= x_goal[0] - clr and
+                        new_lo[1] <= x_goal[1] + clr and new_hi[1] >= x_goal[1] - clr)
+            if s_ok and g_ok:
+                rects[upper_idx] = (new_lo, new_hi)
 
     collision_free = _make_rect_collision_free(
         np.array([-0.5, -0.5]), np.array([0.5, 0.5]), rects)
 
-    metric = ObstacleInflatedMetric(centres, sigma=0.10, alpha=8.0)
+    metric = EuclideanMetric(2)
     return collision_free, _make_edge_cost(metric), metric, x_start, x_goal, bounds
 
 

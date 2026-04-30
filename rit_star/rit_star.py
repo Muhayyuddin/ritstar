@@ -149,7 +149,7 @@ def check_edge_collision(x: np.ndarray, y: np.ndarray,
     else:
         # Adaptive: scale checks with edge length, capped to avoid
         # excessive PyBullet calls in high-D
-        n = max(n_checks, min(n_checks * 5, int(np.ceil(length / 0.02))))
+        n = max(n_checks, min(n_checks * 5, int(np.ceil(length / 0.01))))
     inv_n = 1.0 / n
     for i in range(n + 1):
         pt = x + (i * inv_n) * diff
@@ -201,7 +201,7 @@ def check_edge_collision_adaptive(x: np.ndarray, y: np.ndarray,
 def check_edge_collision_with_feedback(
         x: np.ndarray, y: np.ndarray,
         collision_free: Callable,
-        n_checks: int = 20,
+    n_checks: int = 20,
         step_size: float = 0.0) -> Tuple[bool, Optional[np.ndarray]]:
     """Edge collision check that returns the collision point.
 
@@ -224,7 +224,7 @@ def check_edge_collision_with_feedback(
     if step_size > 0:
         n = max(n_checks, int(np.ceil(length / step_size)))
     else:
-        n = max(n_checks, min(n_checks * 5, int(np.ceil(length / 0.02))))
+        n = max(n_checks, min(n_checks * 5, int(np.ceil(length / 0.01))))
     inv_n = 1.0 / n
     for i in range(n + 1):
         pt = x + (i * inv_n) * diff
@@ -313,7 +313,8 @@ class RITStar:
                  adaptive_metric: bool = False,
                  carm_sigma: float = 0.1,
                  carm_alpha: float = 5.0,
-                 carm_rebuild_interval: int = 20):
+                 carm_rebuild_interval: int = 20,
+                 collision_step_size: float = 0.0):
 
         self.x_start = np.asarray(x_start, dtype=float)
         self.x_goal = np.asarray(x_goal, dtype=float)
@@ -343,7 +344,16 @@ class RITStar:
         # Adaptive resolution: 32 for 2D/3D, but scale down for higher
         # dimensions to avoid memory explosion (res^d grid points).
         cache_res = max(3, min(32, int(5e5 ** (1.0 / self.dim))))
-        self._mc = MetricFieldCache(self.metric, self.bounds, resolution=cache_res)
+        # Collision step size: 0 = auto (0.01 for <=3D, 0.05 for >=4D)
+        if collision_step_size <= 0:
+            self._collision_step_size = 0.01 if self.dim <= 3 else 0.05
+        else:
+            self._collision_step_size = collision_step_size
+        # min checks: 20 for all dims
+        _min_checks = 20
+        self._mc = MetricFieldCache(self.metric, self.bounds, resolution=cache_res,
+                                    collision_step_size=self._collision_step_size,
+                                    min_collision_checks=_min_checks)
         self._cache_res = cache_res
 
         # Create GeodesicComputer AFTER cache for accurate conformal geodesics
@@ -872,25 +882,40 @@ class RITStar:
         # Ordered by f(e) = g(v) + ĉ_R(v,x) + ĥ_R(x) using L1 estimates
         edge_queue = []
         _cnt = 0
+        _is_diag = self._use_weighted_kd  # True when DiagonalAnisotropicMetric
+        _w = self._w if _is_diag else None
+
         for si, (s, h_s) in enumerate(unconnected):
-            q = s * self._sqrt_w if self._use_weighted_kd else s
+            q = s * self._sqrt_w if _is_diag else s
             idxs = kd.query_ball_point(q, r)
             if not idxs:
                 _, idx = kd.query(q)
                 idxs = [int(idx)]
             elif len(idxs) > max_neighbours:
-                dists = [float(np.dot(
-                    self.vertices[i].x - s, self.vertices[i].x - s))
-                    for i in idxs]
-                order = np.argsort(dists)[:max_neighbours]
-                idxs = [idxs[o] for o in order]
+                ovr = np.array(idxs)
+                diffs = tree_coords[ovr] - s
+                dists = np.einsum('ij,ij->i', diffs, diffs)
+                order = np.argpartition(dists, max_neighbours)[:max_neighbours]
+                idxs = ovr[order].tolist()
 
-            for idx in idxs:
-                v = self.vertices[idx]
-                c_hat = mc.edge_cost_l1(v.x, s)
-                f_e = v.cost + c_hat + h_s
+            # Batch L1 cost for all neighbours at once (avoids per-edge
+            # Python call overhead for constant-metric fast paths)
+            nbr_arr = np.array(idxs, dtype=np.intp)
+            nbr_coords = tree_coords[nbr_arr]   # (k, d)
+            nbr_diffs  = nbr_coords - s          # (k, d)
+            if _is_diag:
+                c_hats = np.sqrt(np.einsum('ij,j,ij->i', nbr_diffs, _w, nbr_diffs))
+            else:
+                c_hats = mc.edge_cost_l1(nbr_coords[0], s) if len(idxs) == 1 else \
+                         np.array([mc.edge_cost_l1(nbr_coords[k], s)
+                                   for k in range(len(idxs))])
+
+            nbr_costs = np.array([self.vertices[i].cost for i in idxs])
+            f_es = nbr_costs + c_hats + h_s
+
+            for k_local, (idx, f_e) in enumerate(zip(idxs, f_es)):
                 if c_best == np.inf or f_e < c_best:
-                    heapq.heappush(edge_queue, (f_e, _cnt, idx, si))
+                    heapq.heappush(edge_queue, (float(f_e), _cnt, idx, si))
                     _cnt += 1
 
         # ── Step 3: Process edges in f-value order ───────────────────
@@ -1080,8 +1105,11 @@ class RITStar:
 
         self._carm_last_update_count = new_count
         # Rebuild the metric field cache with the updated adaptive metric
+        _min_checks = 20
         self._mc = MetricFieldCache(self.metric, self.bounds,
-                                    resolution=self._cache_res)
+                                    resolution=self._cache_res,
+                                    collision_step_size=self._collision_step_size,
+                                    min_collision_checks=_min_checks)
         # Update heuristics for all vertices
         for v in self.vertices:
             v.heuristic = self._mc.heuristic(v.x, self.x_goal)
@@ -1305,15 +1333,19 @@ class RITStar:
         acc_rate = 1.0  # whitened sampling ≈ 100% acceptance
 
         if self.c_best < np.inf:
-            informed_vol = self._quick_volume()
+            # Euclidean informed-set volume (used by baselines)
             euclid_vol = self._zeta_d * (self.c_best / 2.0) * \
                 (np.sqrt(max(self.c_best**2 -
                  float(np.linalg.norm(self.x_goal - self.x_start))**2, 0.0))
                  / 2.0) ** (self.dim - 1)
-            vol_ratio = informed_vol / max(euclid_vol, 1e-12)
-            # Theorem 1: analytical volume ratio
+            # Theorem 1: analytical volume ratio Vol(I_R)/Vol(I_E)
+            # Pass c_best so the eccentricity correction is included
             analytical_vr = volume_ratio_bound(
-                self.metric, self.x_start, self.x_goal, self.dim)
+                self.metric, self.x_start, self.x_goal, self.dim,
+                c_best=self.c_best)
+            # True Riemannian informed-set volume = ratio × Euclidean volume
+            informed_vol = analytical_vr * euclid_vol
+            vol_ratio = analytical_vr
 
         self._stats.append({
             'iteration': iteration,

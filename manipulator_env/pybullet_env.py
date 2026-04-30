@@ -15,6 +15,16 @@ import pybullet as p
 import pybullet_data
 from typing import List, Tuple, Optional
 
+try:
+    from manipulator_env.ur10_fast_collision import make_ur10_fast_checker
+    _FAST_COLL_AVAILABLE = True
+except ImportError:
+    try:
+        from ur10_fast_collision import make_ur10_fast_checker
+        _FAST_COLL_AVAILABLE = True
+    except ImportError:
+        _FAST_COLL_AVAILABLE = False
+
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _URDF = os.path.join(_HERE, "models", "ur10e_robotiq85.urdf")
 
@@ -119,8 +129,35 @@ class UR10eRobotiqEnv:
         # Disable collisions between gripper mimic links (they overlap)
         self._disable_gripper_self_collision()
 
+        # Pre-build (robot_id, joint_idx) pairs for fast set_joint_positions
+        rid = self.robot_id
+        self._arm_joint_pairs = tuple(
+            (rid, idx) for idx in self.arm_joint_indices
+        )
+        # Python-native joint limits for fast scalar comparison
+        # (avoids numpy overhead for 6-element arrays)
+        self._jlim_lo = tuple(float(v) for v in self.JOINT_LIMITS_LOWER)
+        self._jlim_hi = tuple(float(v) for v in self.JOINT_LIMITS_UPPER)
+
         # Step once to settle
         p.stepSimulation(physicsClientId=self.physics_client)
+
+        # Build Numba fast collision checker (FK + capsule-vs-AABB).
+        # Used as early-reject before the full PyBullet check.
+        self._fast_checker = None
+        self._fast_checker_active = False
+        if _FAST_COLL_AVAILABLE:
+            try:
+                self._fast_checker = make_ur10_fast_checker(
+                    obstacles=obstacles or [],
+                    base_pos=bp,
+                    z_floor=0.0,
+                    joint_limits_lower=self.JOINT_LIMITS_LOWER,
+                    joint_limits_upper=self.JOINT_LIMITS_UPPER,
+                )
+                self._fast_checker_active = True
+            except Exception:
+                self._fast_checker_active = False
 
     # ─── Obstacle creation ────────────────────────────────────────
 
@@ -249,8 +286,9 @@ class UR10eRobotiqEnv:
     def set_joint_positions(self, q: np.ndarray):
         """Instantly set the 6 UR10e joint positions (no simulation step)."""
         cid = self.physics_client
-        for idx, val in zip(self.arm_joint_indices, q):
-            p.resetJointState(self.robot_id, idx, val, physicsClientId=cid)
+        _resetJointState = p.resetJointState
+        for (rid, idx), val in zip(self._arm_joint_pairs, q):
+            _resetJointState(rid, idx, val, physicsClientId=cid)
 
     def get_joint_positions(self) -> np.ndarray:
         """Return current 6-DOF joint positions."""
@@ -317,11 +355,29 @@ class UR10eRobotiqEnv:
 
         Checks:
           1. Joint limits
-          2. Self-collision of the arm
-          3. Collision with obstacles and ground plane
+          2. Fast Numba capsule check (early reject, skips PyBullet if colliding)
+          3. Self-collision of the arm
+          4. Collision with obstacles and ground plane (PyBullet)
         """
-        # Joint limits
-        if np.any(q < self.JOINT_LIMITS_LOWER) or np.any(q > self.JOINT_LIMITS_UPPER):
+        # Fast path: Numba FK + capsule-vs-AABB early reject.
+        # If the fast checker detects a collision, return False immediately
+        # (skips all PyBullet overhead for obvious collision cases).
+        # Fast checker says "free" → fall through to full PyBullet pipeline
+        # for self-collision and any collisions the capsule model missed.
+        if self._fast_checker_active and not self._attached_info:
+            if not self._fast_checker(q):
+                return False
+
+        # ── Full PyBullet pipeline ─────────────────────────────────────────
+        # Joint limits — pure Python comparison avoids numpy overhead for 6 vals
+        lo = self._jlim_lo
+        hi = self._jlim_hi
+        if (q[0] < lo[0] or q[0] > hi[0] or
+                q[1] < lo[1] or q[1] > hi[1] or
+                q[2] < lo[2] or q[2] > hi[2] or
+                q[3] < lo[3] or q[3] > hi[3] or
+                q[4] < lo[4] or q[4] > hi[4] or
+                q[5] < lo[5] or q[5] > hi[5]):
             return False
 
         self.set_joint_positions(q)
