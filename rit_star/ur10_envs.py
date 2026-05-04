@@ -194,6 +194,116 @@ def env_ur10_pick_place_drill():
                      _UR10_PICK_PLACE_DRILL_Q_GOAL)
 
 
+# ── Tiago Pro 14-D dual-arm bimanual grasp ───────────────────────────
+
+def env_tiago_14d():
+    """14-D Tiago Pro: dual-arm bimanual pre-grasp of a tall box.
+
+    Both 7-DOF arms are planned simultaneously in a joint 14-D
+    configuration space.  The environment mirrors the headless version of
+    Tiago_pro_dual_grasp_box.py:
+      * q[:7]  = arm_left_1…7
+      * q[7:]  = arm_right_1…7
+      * torso is fixed at the midpoint of its travel range
+
+    Returns the standard 6-tuple
+    ``(collision_checker, edge_cost, metric, x_start, x_goal, bounds)``.
+    """
+    import sys
+    import pybullet as p
+    import pybullet_data
+
+    # Import demo constants / helpers without running main()
+    import importlib.util, os
+    _spec = importlib.util.spec_from_file_location(
+        'tiago_demo',
+        os.path.join(_REPO, 'Tiago_pro_dual_grasp_box.py'))
+    demo = importlib.util.module_from_spec(_spec)
+    _spec.loader.exec_module(demo)
+
+    # Build headless PyBullet scene
+    cid = p.connect(p.DIRECT)
+    p.setAdditionalSearchPath(pybullet_data.getDataPath(), physicsClientId=cid)
+    p.setGravity(0, 0, -9.81, physicsClientId=cid)
+    p.loadURDF('plane.urdf', physicsClientId=cid)
+
+    tiago_orn = p.getQuaternionFromEuler([0, 0, demo.TIAGO_YAW])
+    rid = p.loadURDF(demo.TIAGO_URDF,
+                     basePosition=[demo.TIAGO_X, demo.TIAGO_Y, 0.0],
+                     baseOrientation=tiago_orn,
+                     useFixedBase=True,
+                     physicsClientId=cid)
+
+    jmap, lmap = demo.build_joint_maps(cid, rid)
+    arm_left_idx  = [jmap[n] for n in demo.ARM_LEFT_JOINTS]
+    arm_right_idx = [jmap[n] for n in demo.ARM_RIGHT_JOINTS]
+    torso_idx     = jmap[demo.TORSO_JOINT]
+    ee_left_idx   = lmap[demo.EE_LEFT_LINK]
+    ee_right_idx  = lmap[demo.EE_RIGHT_LINK]
+
+    # Fix torso at joint midpoint
+    _ti = p.getJointInfo(rid, torso_idx, physicsClientId=cid)
+    torso_mid = 0.5 * (float(_ti[8]) + float(_ti[9]))
+    p.resetJointState(rid, torso_idx, torso_mid, physicsClientId=cid)
+    p.setJointMotorControl2(rid, torso_idx, p.POSITION_CONTROL,
+                            targetPosition=torso_mid, force=500,
+                            physicsClientId=cid)
+
+    # Apply home pose
+    arm_home_right = demo.ARM_HOME * np.array([-1, 1, -1, 1, -1, 1, -1])
+    demo.set_joint_values(cid, rid, arm_left_idx,  demo.ARM_HOME)
+    demo.set_joint_values(cid, rid, arm_right_idx, arm_home_right)
+
+    # Build scene, get obstacle IDs
+    table_id, box_id, obs_left_id, obs_right_id = demo.build_scene(cid)
+    obstacles = [table_id, box_id, obs_left_id, obs_right_id]
+
+    # Compute IK goal configs for both arms
+    all_movable = [i for i in range(p.getNumJoints(rid, physicsClientId=cid))
+                   if p.getJointInfo(rid, i, physicsClientId=cid)[2]
+                   != p.JOINT_FIXED]
+    lpos, lorn, rpos, rorn = demo.compute_goal_targets()
+    q_left, _, _ = demo.solve_arm_ik(
+        cid, rid, arm_left_idx, ee_left_idx, lpos, lorn,
+        all_movable, demo.ARM_HOME, obstacle_ids=obstacles,
+        label='LEFT', n_seeds=200)
+    demo.set_joint_values(cid, rid, arm_left_idx, q_left)
+    q_right, _, _ = demo.solve_arm_ik(
+        cid, rid, arm_right_idx, ee_right_idx, rpos, rorn,
+        all_movable, arm_home_right, obstacle_ids=obstacles,
+        label='RIGHT', n_seeds=200)
+
+    # 14-D start / goal
+    q_start_14 = np.concatenate([demo.ARM_HOME, arm_home_right])
+    q_goal_14  = np.concatenate([q_left, q_right])
+
+    # 14-D bounds (left-arm limits + right-arm limits)
+    lower_l, upper_l = demo.get_joint_limits(cid, rid, arm_left_idx)
+    lower_r, upper_r = demo.get_joint_limits(cid, rid, arm_right_idx)
+    for lo, hi in [(lower_l, upper_l), (lower_r, upper_r)]:
+        for i in range(len(lo)):
+            if lo[i] >= hi[i]:
+                lo[i] = -2 * np.pi
+                hi[i] =  2 * np.pi
+    bounds = (list(zip(lower_l.tolist(), upper_l.tolist())) +
+              list(zip(lower_r.tolist(), upper_r.tolist())))
+
+    # 14-D metric: per-arm inertia weights repeated for both arms
+    weights_14 = demo.TIAGO_ARM_WEIGHTS + demo.TIAGO_ARM_WEIGHTS
+    metric = DiagonalAnisotropicMetric(weights_14)
+
+    # Collision checker: checks both arms simultaneously + self-collision
+    fixed_joints = {torso_idx: torso_mid}
+    collision_checker = demo.make_dual_arm_collision_checker(
+        cid, rid, arm_left_idx, arm_right_idx, fixed_joints, obstacles)
+
+    # Keep PyBullet client alive by attaching it to the checker closure
+    collision_checker._cid = cid
+    collision_checker._rid = rid
+
+    return collision_checker, None, metric, q_start_14, q_goal_14, bounds
+
+
 # Public registry — consumed by run_from_config.py
 UR10_ENV_REGISTRY = {
     'UR10_grasp_can':          env_ur10_grasp_can,
@@ -201,4 +311,5 @@ UR10_ENV_REGISTRY = {
     'UR10_pick_shelf':         env_ur10_pick_shelf,
     'UR10_pick_place_shelf':   env_ur10_pick_place_shelf,
     'UR10_pick_place_drill':   env_ur10_pick_place_drill,
+    'Tiago 14D':               env_tiago_14d,
 }

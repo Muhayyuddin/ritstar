@@ -167,8 +167,9 @@ if ALL_6D_ENVS:
 try:
     from rit_star.ur10_envs import UR10_ENV_REGISTRY as _UR10_ENV_REG
     for _ur10_name, _ur10_fn in _UR10_ENV_REG.items():
-        ENV_REGISTRY[_ur10_name] = (_ur10_fn, '6d')
-        # lowercase alias so users can type 'ur10_pick_shelf' too
+        _dim_tag = '14d' if _ur10_name == 'Tiago 14D' else '6d'
+        ENV_REGISTRY[_ur10_name] = (_ur10_fn, _dim_tag)
+        # lowercase alias so users can type 'ur10_pick_shelf' / 'tiago_14d' too
         ENV_ALIASES[_ur10_name.lower()] = [_ur10_name]
 except Exception as _e:
     print(f'[WARN] UR10 env registry unavailable: {_e}')
@@ -262,8 +263,8 @@ def _resolve_environments(spec) -> list[str]:
         token_lower = str(token).strip().lower()
         if token_lower == 'all':
             return list(ENV_REGISTRY.keys())
-        # Check dimension tags: 2d, 3d, 6d, 2d_euclid, euclid
-        if token_lower in ('2d', '3d', '6d', '2d_euclid', 'euclid'):
+        # Check dimension tags: 2d, 3d, 6d, 14d, 2d_euclid, euclid
+        if token_lower in ('2d', '3d', '6d', '14d', '2d_euclid', 'euclid'):
             match_tag = token_lower
             if token_lower == 'euclid':
                 match_tag = '2d_euclid'
@@ -1063,6 +1064,8 @@ PYBULLET_DEMO_REGISTRY = {
                               'Place grasped bottle on top of shelf'),
     'test_env':              ('test_env.py',
                               'Static shelf scene — arm held at fixed q'),
+    'Tiago 14D':             ('Tiago_pro_dual_grasp_box.py',
+                              'Tiago Pro 14-D dual-arm bimanual pre-grasp'),
 }
 
 
@@ -1134,11 +1137,12 @@ def run_pybullet_demos(cfg: dict) -> None:
                       f'trial={trial+1}/{n_trials}  seed={seed} ...',
                       flush=True)
                 try:
-                    subprocess.run(
-                        [sys.executable, script_path,
-                         '--max-iter', str(max_iter),
-                         '--batch-size', str(batch_size)],
-                        cwd=repo_root, env=env, check=False)
+                    cmd = [sys.executable, script_path,
+                           '--max-iter', str(max_iter),
+                           '--batch-size', str(batch_size)]
+                    if not want_gui:
+                        cmd.append('--headless')
+                    subprocess.run(cmd, cwd=repo_root, env=env, check=False)
                 except KeyboardInterrupt:
                     print(f'      [INT] {demo_name}/{planner_name} interrupted.')
 

@@ -51,8 +51,8 @@
 
 #planners: all
 #environments: [2D]
-environments: ['2D Random World','3D Diagonal']
-planners: ['RIT*', 'RIT*-CARM', 'BIT*', 'AIT*', 'APT*']
+environments: ['Tiago 14D']
+planners: ['RIT*', 'BIT*', 'Informed RRT*','AIT*','EIT*', 'APT*']
 #planners:  ['RIT*-CARM', 'Informed RRT*', 'BIT*', 'AIT*', 'APT*']
 #environments:  ['2D Random World','3D Diagonal', 'UR10_pick_place_can','UR10_pick_place_drill']
 #environments:  ['random_world','3D Diagonal']
@@ -63,7 +63,7 @@ planners: ['RIT*', 'RIT*-CARM', 'BIT*', 'AIT*', 'APT*']
 #environments:  ['random_world','dividing_wall','2D Diagonal', '2D Obstacle', '2D Narrow', '2D Maze', '2D Bug Trap', '2D Forest', '2D Terrain', '2D Hyper-Dense', '2D Joint Arm']
 
 # Benchmark parameters
-n_trials: 5
+n_trials: 3
 max_iterations: 150
 batch_size: 100
 base_seed: 60
@@ -132,14 +132,40 @@ ablation_envs: ['random_world', '3D Diagonal', 'UR10_pick_shelf','UR10_pick_plac
 #   UR10_pick_place_shelf : starting from a grasped bottle (Phase 2),
 #                           place it on top of the shelf.
 
-run_pybullet_demos: false
+run_pybullet_demos: true
 pybullet_demos_gui: false     # set true to also open each demo in a GUI pass
 pybullet_demos_save_gif: true # save visualization/gifs/pybullet_<demo>_<planner>.gif
-pybullet_demos: ['UR10_pick_place_drill']
+pybullet_demos: ['Tiago 14D']
 # pybullet_demos:
 #   - UR10_grasp_can
 #   - UR10_pick_place_can
 #   - UR10_pick_shelf
 #   - UR10_pick_place_shelf
 #   - UR10_pick_place_drill
+
+# ── Tiago Pro 14-D dual-arm demo ──────────────────────────────────────
+# Plans both arms jointly in a 14-D configuration space using RIT*.
+# Run interactively:  python Tiago_pro_dual_grasp_box.py
+# Run headless:       python Tiago_pro_dual_grasp_box.py --headless
+# Run full benchmark: add 'Tiago 14D' to environments: above
+#                     (dimension tag '14d'; listed by `environments: [14d]`)
+#
+# Tiago 14D:
+#   script : Tiago_pro_dual_grasp_box.py
+#   planner: any (RIT*, BIT*, AIT*, APT*, Informed RRT*, EIT*)
+#   scene  : Tiago Pro facing a tall box on a table, flanked by two red
+#            obstacle boxes. Both 7-DOF arms reach inward from opposite
+#            ends of the box; torso fixed at joint midpoint.
+#   DOF    : 14  (arm_left_1…7 + arm_right_1…7)
+tiago_demos:
+  - name: Tiago 14D
+    script: Tiago_pro_dual_grasp_box.py
+    planner: RIT*
+    dof: 14
+    description: >
+      Dual-arm bimanual pre-grasp of a tall box. Both 7-DOF arms are
+      planned simultaneously in a 14-D C-space using RIT* with a
+      diagonal inertia-weighted metric. Cross-arm self-collision is
+      checked during planning. Two red obstacle boxes flank the central
+      grasp target on the table.
 
