@@ -58,11 +58,13 @@ class MetricFieldCache:
         '_s_min', '_lambda_min',
         '_riemannian_vol_cache',
         '_collision_step_size', '_min_collision_checks',
+        '_no_cascading',
     )
 
     def __init__(self, metric: RiemannianMetric, bounds: list,
                  resolution: int = 32, collision_step_size: float = 0.01,
                  min_collision_checks: int = 20):
+        self._no_cascading = False
         self.metric = metric
         self.dim = len(bounds)
         self._lo = np.array([b[0] for b in bounds], dtype=float)
@@ -251,6 +253,8 @@ class MetricFieldCache:
 
         Used for candidate ranking and fast filtering.
         """
+        if self._no_cascading:
+            return 0.0
         diff = y - x
         dd = float(diff @ diff)
         if self._is_euclidean:
@@ -270,6 +274,8 @@ class MetricFieldCache:
         Used as a filter in the cascading edge evaluation.  Edges that
         pass L2 filtering proceed to L3 for exact cost + collision check.
         """
+        if self._no_cascading:
+            return 0.0
         diff = y - x
         if self._is_euclidean:
             return float(np.sqrt(diff @ diff))

@@ -22,6 +22,8 @@ from __future__ import annotations
 
 import gc
 import os
+import pickle
+import signal
 import sys
 import time
 import yaml
@@ -61,6 +63,18 @@ from rit_star.environments import (
     env_2d_forest_euclidean,
     ALL_6D_ENVS,
 )
+
+# ═══════════════════════════════════════════════════════════════════════
+#  Timeout helpers
+# ═══════════════════════════════════════════════════════════════════════
+
+class _TimeoutError(Exception):
+    """Raised when a planning call exceeds the configured timeout."""
+
+
+def _alarm_handler(signum, frame):  # noqa: ARG001
+    raise _TimeoutError()
+
 
 # ═══════════════════════════════════════════════════════════════════════
 #  Registries
@@ -298,24 +312,35 @@ def load_config(path: str) -> dict:
     planners = _resolve_planners(cfg.get('planners', 'all'))
     environments = _resolve_environments(cfg.get('environments', 'all'))
 
+    n_trials     = int(cfg.get('n_trials', 2))
+    max_iterations = int(cfg.get('max_iterations', 150))
+    batch_size   = int(cfg.get('batch_size', 100))
+    base_seed    = int(cfg.get('base_seed', 42))
+
     return {
         'planners': planners,
         'environments': environments,
-        'n_trials': int(cfg.get('n_trials', 2)),
-        'max_iterations': int(cfg.get('max_iterations', 150)),
-        'batch_size': int(cfg.get('batch_size', 100)),
-        'base_seed': int(cfg.get('base_seed', 42)),
+        'n_trials': n_trials,
+        'max_iterations': max_iterations,
+        'batch_size': batch_size,
+        'base_seed': base_seed,
         # Output options
         'save_image': bool(cfg.get('save_image', False)),
         'save_gif': bool(cfg.get('save_gif', False)),
-        # Benchmark plots
+        # Benchmark plots — fall back to the main run params when not explicitly set
         'run_benchmark_plots': bool(cfg.get('run_benchmark_plots', False)),
         'generate_benchmark_plots': bool(cfg.get('generate_benchmark_plots', True)),
         'generate_benchmark_tables': bool(cfg.get('generate_benchmark_tables', True)),
-        'bench_n_trials': int(cfg.get('bench_n_trials', 10)),
-        'bench_max_iterations': int(cfg.get('bench_max_iterations', 150)),
-        'bench_batch_size': int(cfg.get('bench_batch_size', 100)),
-        'bench_base_seed': int(cfg.get('bench_base_seed', 42)),
+        'bench_n_trials': int(cfg.get('bench_n_trials', n_trials)),
+        'bench_max_iterations': int(cfg.get('bench_max_iterations', max_iterations)),
+        'bench_batch_size': int(cfg.get('bench_batch_size', batch_size)),
+        'bench_base_seed': int(cfg.get('bench_base_seed', base_seed)),
+        'bench_timeout_seconds': int(cfg.get('bench_timeout_seconds',
+                                             cfg.get('timeout_seconds', 200))),
+        'bench_cache_file': cfg.get('bench_cache_file', 'results/benchmark_data.pkl'),
+        # Per-trial timeout (seconds). Runs exceeding this limit are treated
+        # as no-solution (inf cost) and counted as failures in success rate.
+        'timeout_seconds': int(cfg.get('timeout_seconds', 200)),
         # Monte Carlo comparison
         'run_mc': bool(cfg.get('run_mc', False)),
         'mc_n_trials': int(cfg.get('mc_n_trials', 10)),
@@ -815,6 +840,8 @@ def run(cfg: dict):
     save_image = cfg.get('save_image', False)
     save_gif = cfg.get('save_gif', False)
 
+    timeout_seconds = int(cfg.get('timeout_seconds', 200))
+
     total_runs = len(planners) * len(environments) * n_trials
     print('=' * 60)
     print('  CONFIG-DRIVEN BENCHMARK')
@@ -825,6 +852,7 @@ def run(cfg: dict):
     print(f'  Max iters:     {max_iter}')
     print(f'  Batch size:    {batch_size}')
     print(f'  Base seed:     {base_seed}')
+    print(f'  Timeout:       {timeout_seconds}s')
     print(f'  Save images:   {save_image}')
     print(f'  Save GIFs:     {save_gif}')
     print(f'  Total runs:    {total_runs}')
@@ -854,20 +882,39 @@ def run(cfg: dict):
                 print(f'      Trial {trial + 1}/{n_trials} '
                       f'[{run_count}/{total_runs}] ...', end=' ', flush=True)
 
+                timed_out = False
                 t0 = time.time()
                 planner = _build_planner(
                     planner_name, xs, xg, bounds, coll, metric,
                     batch_size, max_iter, seed)
-                path, cost = planner.plan()
+                signal.signal(signal.SIGALRM, _alarm_handler)
+                signal.alarm(timeout_seconds)
+                try:
+                    path, cost = planner.plan()
+                    signal.alarm(0)  # cancel alarm on success
+                except _TimeoutError:
+                    path = None
+                    cost = np.inf
+                    timed_out = True
+                finally:
+                    signal.alarm(0)  # always cancel alarm
                 elapsed = time.time() - t0
-                stats = planner.get_stats()
+                try:
+                    stats = planner.get_stats()
+                except Exception:
+                    stats = []
 
                 trial_results.append({
                     'final_cost': cost if np.isfinite(cost) else np.inf,
                     'time_elapsed': elapsed,
                     'iterations': stats[-1]['iteration'] if stats else 0,
+                    'timed_out': timed_out,
                 })
-                print(f'cost={cost:.4f}  time={elapsed:.2f}s')
+                if timed_out:
+                    print(f'TIMEOUT ({timeout_seconds}s) → inf  time={elapsed:.2f}s')
+                else:
+                    cost_disp = f'{cost:.4f}' if np.isfinite(cost) else 'inf'
+                    print(f'cost={cost_disp}  time={elapsed:.2f}s')
 
                 # Save image on last trial only
                 if save_image and trial == n_trials - 1:
@@ -937,17 +984,19 @@ def run(cfg: dict):
         all_results[env_name] = env_results
 
     # ── Summary ───────────────────────────────────────────────────
-    print('\n' + '=' * 60)
+    print('\n' + '=' * 72)
     print('  SUMMARY')
-    print('=' * 60)
-    print(f'  {"Environment":<22} {"Planner":<18} {"Cost (mean±std)":<22} {"Time (mean)"}')
-    print(f'  {"─" * 22} {"─" * 18} {"─" * 22} {"─" * 12}')
+    print('=' * 72)
+    print(f'  {"Environment":<22} {"Planner":<18} {"Cost (mean±std)":<22} {"Time (mean)":<14} {"Success Rate"}')
+    print(f'  {"─" * 22} {"─" * 18} {"─" * 22} {"─" * 14} {"─" * 12}')
 
     for env_name, env_results in all_results.items():
         for planner_name, trials in env_results.items():
             costs = [t['final_cost'] for t in trials]
             times = [t['time_elapsed'] for t in trials]
             finite = [c for c in costs if np.isfinite(c)]
+            n = len(trials)
+            success_rate = 100.0 * len(finite) / n if n > 0 else 0.0
             if finite:
                 mean_c = np.mean(finite)
                 std_c = np.std(finite)
@@ -955,7 +1004,24 @@ def run(cfg: dict):
             else:
                 cost_str = 'no solution'
             mean_t = np.mean(times)
-            print(f'  {env_name:<22} {planner_name:<18} {cost_str:<22} {mean_t:.2f}s')
+            print(f'  {env_name:<22} {planner_name:<18} {cost_str:<22} {mean_t:.2f}s          {success_rate:.1f}% ({len(finite)}/{n})')
+
+    # ── Per-environment success rate table ────────────────────────
+    print('\n' + '=' * 72)
+    print('  SUCCESS RATE PER ENVIRONMENT')
+    print('=' * 72)
+    print(f'  {"Environment":<28} {"Planner":<18} {"Success Rate"}')
+    print(f'  {"─" * 28} {"─" * 18} {"─" * 20}')
+    for env_name, env_results in all_results.items():
+        for planner_name, trials in env_results.items():
+            costs = [t['final_cost'] for t in trials]
+            finite = [c for c in costs if np.isfinite(c)]
+            n = len(trials)
+            n_timeout = sum(1 for t in trials if t.get('timed_out', False))
+            n_no_soln = n - len(finite)
+            success_rate = 100.0 * len(finite) / n if n > 0 else 0.0
+            timeout_note = f'  ({n_timeout} timeout)' if n_timeout else ''
+            print(f'  {env_name:<28} {planner_name:<18} {success_rate:>6.1f}%  [{len(finite)}/{n}]{timeout_note}')
 
     print('\nDone.')
     return all_results
@@ -1008,22 +1074,43 @@ def run_benchmark(cfg: dict):
     print(f'  Bench max iters:  {cfg["bench_max_iterations"]}')
     print(f'  Bench batch size: {cfg["bench_batch_size"]}')
     print(f'  Bench base seed:  {cfg["bench_base_seed"]}')
+    print(f'  Bench timeout:    {cfg["bench_timeout_seconds"]}s')
     print(f'  Generate plots:   {cfg["generate_benchmark_plots"]}')
     print(f'  Generate tables:  {cfg["generate_benchmark_tables"]}')
     print('=' * 60)
 
     planners = cfg['planners']
     environments = cfg['environments']
+    cache_path = cfg.get('bench_cache_file', 'results/benchmark_data.pkl')
     all_results = {}
 
-    for env_name in environments:
+    # ── Load existing cache (if present) ────────────────────────────
+    if cache_path and os.path.isfile(cache_path):
+        print(f'\n  Loading cached benchmark data from {cache_path}')
+        with open(cache_path, 'rb') as _f:
+            all_results = pickle.load(_f)
+        print(f'  Cached envs: {list(all_results.keys())}')
+
+    # ── Collect data for any env not yet in cache ────────────────────
+    missing = [e for e in environments if e not in all_results]
+    for env_name in missing:
         env_fn, dim_tag = ENV_REGISTRY[env_name]
         print(f'\n  Environment: {env_name} ({dim_tag.upper()})')
         results = _collect_data(
             env_name, env_fn, planners, cfg['bench_n_trials'],
             cfg['bench_max_iterations'], cfg['bench_batch_size'],
-            cfg['bench_base_seed'])
+            cfg['bench_base_seed'], cfg.get('bench_timeout_seconds', 200))
         all_results[env_name] = results
+
+    # ── Persist / update cache ───────────────────────────────────────
+    if cache_path and missing:   # only write when new data was collected
+        os.makedirs(os.path.dirname(cache_path) or '.', exist_ok=True)
+        with open(cache_path, 'wb') as _f:
+            pickle.dump(all_results, _f)
+        print(f'\n  Benchmark data saved to {cache_path}')
+
+    # Only keep envs requested in this run for plotting / tables
+    all_results = {e: all_results[e] for e in environments if e in all_results}
 
     os.makedirs(PLOTS_DIR, exist_ok=True)
 

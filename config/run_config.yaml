@@ -50,10 +50,12 @@
 # ═══════════════════════════════════════════════════════════════════════
 
 #planners: all
-#environments: [2D]
-environments: ['Tiago 14D']
-planners: ['RIT*', 'BIT*', 'Informed RRT*','AIT*','EIT*', 'APT*']
-#planners:  ['RIT*-CARM', 'Informed RRT*', 'BIT*', 'AIT*', 'APT*']
+#environments: [2D] 'Tiago 14D'
+planners:  ['RIT*', 'BIT*', 'Informed RRT*','AIT*','EIT*', 'APT*']
+#environments: ['2D Random World','3D Diagonal', 'UR10_pick_place_drill', 'Tiago 14D simple']
+environments: [ 'Tiago 14D simple']
+
+#planners: ['RIT*', 'RIT*-CARM', 'BIT*', 'Informed RRT*', 'AIT*', 'EIT*', 'APT*']
 #environments:  ['2D Random World','3D Diagonal', 'UR10_pick_place_can','UR10_pick_place_drill']
 #environments:  ['random_world','3D Diagonal']
 #['random_world','dividing_wall', '3D Diagonal','3D Box Field','UR10_pick_shelf','UR10_pick_place_shelf', 'UR10_grasp_can','UR10_pick_place_can','UR10_pick_place_drill']
@@ -63,8 +65,13 @@ planners: ['RIT*', 'BIT*', 'Informed RRT*','AIT*','EIT*', 'APT*']
 #environments:  ['random_world','dividing_wall','2D Diagonal', '2D Obstacle', '2D Narrow', '2D Maze', '2D Bug Trap', '2D Forest', '2D Terrain', '2D Hyper-Dense', '2D Joint Arm']
 
 # Benchmark parameters
-n_trials: 3
-max_iterations: 150
+# NOTE: 14D envs (Tiago) need many more iterations than 2D/3D.
+#       500 iterations × batch 200 gives non-inf costs for all planners.
+# Per-trial planning timeout (seconds). If no path is found within this
+# limit the trial is counted as no solution (inf cost) in success rate.
+timeout_seconds: 300
+n_trials: 10
+max_iterations: 200
 batch_size: 100
 base_seed: 60
 
@@ -82,13 +89,21 @@ save_gif: true
 # generate_benchmark_tables: generate Table II / III-style benchmark
 #                            tables (CSV + LaTeX + console)
 # bench parameters below are only used when run_benchmark_plots is true.
-run_benchmark_plots: true
-generate_benchmark_plots: true
-generate_benchmark_tables: true
-bench_n_trials: 10
-bench_max_iterations: 150
-bench_batch_size: 100
-bench_base_seed: 42
+run_benchmark_plots: false
+generate_benchmark_plots: false
+generate_benchmark_tables: false
+# bench_n_trials, bench_max_iterations, bench_batch_size, bench_base_seed
+# are intentionally omitted — they automatically inherit n_trials,
+# max_iterations, batch_size, and base_seed above so the benchmark
+# re-uses the same run instead of repeating it.
+# Uncomment any line below to override independently:
+#bench_n_trials: 10
+#bench_max_iterations: 150
+#bench_batch_size: 100
+bench_timeout_seconds: 350
+#bench_base_seed: 42
+# Path to save/load raw trial data (pickle).  Delete the file to force a fresh run.
+bench_cache_file: results/benchmark_data.pkl
 
 # ── Monte Carlo comparison ───────────────────────────────────────────
 # run_mc: run the full Monte Carlo comparison pipeline
@@ -111,10 +126,10 @@ mc_visualize: true
 #                paper table: [2D Maze, 3D Spheres, 6D Shelf, 6D Cluttered].
 run_ablation: true
 ablation_n_trials: 10
-ablation_max_iterations: 150
+ablation_max_iterations: 200
 ablation_batch_size: 100
 ablation_base_seed: 42
-ablation_envs: ['random_world', '3D Diagonal', 'UR10_pick_shelf','UR10_pick_place_can', 'UR10_grasp_can','UR10_pick_place_can','UR10_pick_place_drill']
+ablation_envs: ['2D Random World', '3D Diagonal', 'UR10_pick_place_drill','Tiago 14D simple']
 
 # ── 6-D PyBullet demos (UR10e + Robotiq scenes, GUI-only) ─────────────
 # Each entry launches the corresponding script as a sub-process. The
@@ -132,9 +147,9 @@ ablation_envs: ['random_world', '3D Diagonal', 'UR10_pick_shelf','UR10_pick_plac
 #   UR10_pick_place_shelf : starting from a grasped bottle (Phase 2),
 #                           place it on top of the shelf.
 
-run_pybullet_demos: true
+run_pybullet_demos: false
 pybullet_demos_gui: false     # set true to also open each demo in a GUI pass
-pybullet_demos_save_gif: true # save visualization/gifs/pybullet_<demo>_<planner>.gif
+pybullet_demos_save_gif: false # save visualization/gifs/pybullet_<demo>_<planner>.gif
 pybullet_demos: ['Tiago 14D']
 # pybullet_demos:
 #   - UR10_grasp_can

@@ -44,10 +44,11 @@ VARIANTS = [
 
 # (env_id, display_label) — env_id must match ENV_REGISTRY in run_from_config
 DEFAULT_ENVS = [
-    ('2D Maze',       '2D Maze'),
-    ('3D Spheres',    '3D Sph.'),
-    ('6D Shelf',      '6D Shelf'),
-    ('6D Cluttered',  '6D Clut.'),
+    ('2D Maze',            '2D Maze'),
+    ('3D Spheres',         '3D Sph.'),
+    ('6D Shelf',           '6D Shelf'),
+    ('6D Cluttered',       '6D Clut.'),
+    ('Tiago 14D simple',   '14D Tiago'),
 ]
 
 
@@ -65,8 +66,7 @@ def _apply_variant(planner: RITStar, variant: dict) -> None:
     if not variant['cascading']:
         # Force every edge through the full metric evaluation by making
         # the cached L1/L2 upper bounds always 0 (so they never reject).
-        planner._mc.edge_cost_l1 = lambda x, y: 0.0
-        planner._mc.edge_cost_l2 = lambda x, y: 0.0
+        planner._mc._no_cascading = True
 
     if not variant['smoothing']:
         # Skip the post-processing shortcut pass.

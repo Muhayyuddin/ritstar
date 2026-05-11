@@ -55,9 +55,9 @@ OBS_BOX_L = BOX_W          # x extent (same as centre box y-span)
 OBS_BOX_W = BOX_L / 2      # y extent — half the centre box depth
 OBS_BOX_H = BOX_H * 1.4    # 40% taller than centre box
 OBS_BOX_Z_MID = TABLE_SURFACE_Z + OBS_BOX_H / 2
-OBS_BOX_X = BOX_X           # same x-centre as the main box
+OBS_BOX_X = BOX_X - 0.15    # shifted 15 cm away from robot toward the far table edge
 OBS_RIGHT_Y = TABLE_CY + TABLE_WID / 2 - OBS_BOX_W / 2  # flush with right table edge
-OBS_LEFT_Y  = BOX_Y - (OBS_RIGHT_Y - BOX_Y)             # mirrored about BOX_Y → equal corridors
+OBS_LEFT_Y  = TABLE_CY - TABLE_WID / 2 + OBS_BOX_W / 2  # flush with left table edge
 
 CLR_BOX   = [0.78, 0.64, 0.46, 1.0]
 CLR_OBS   = [0.70, 0.25, 0.25, 1.0]   # red obstacle boxes
@@ -167,9 +167,16 @@ def make_dual_arm_collision_checker(cid, rid, arm_left_idx, arm_right_idx,
             if p.getContactPoints(bodyA=rid, bodyB=ob_id,
                                   physicsClientId=cid):
                 return False
-        # Self-collision between the two arms
-        if p.getContactPoints(bodyA=rid, bodyB=rid, physicsClientId=cid):
-            return False
+        # Self-collision: only check left-arm links against right-arm links.
+        # Avoid getContactPoints(bodyA=rid, bodyB=rid) which catches contacts
+        # between non-arm links (torso, spine, head) that are always touching
+        # in their URDF-default positions, causing false rejections.
+        for li in arm_left_idx:
+            for ri in arm_right_idx:
+                if p.getContactPoints(bodyA=rid, bodyB=rid,
+                                      linkIndexA=li, linkIndexB=ri,
+                                      physicsClientId=cid):
+                    return False
         return True
     return _checker
 
@@ -185,6 +192,34 @@ def _interp_path(path, max_step=0.05):
         n_steps = max(1, int(np.ceil(dist / max_step)))
         for k in range(1, n_steps + 1):
             result.append(path[i] + (k / n_steps) * diff)
+    return result
+
+
+def _resample_path(path, n_points):
+    """Resample a path to exactly n_points evenly spaced by C-space arc length.
+
+    Both arms are resampled to the same n_points so they advance
+    proportionally and finish at exactly the same animation frame.
+    """
+    if not path or n_points < 2:
+        return path
+    arc = [0.0]
+    for i in range(1, len(path)):
+        arc.append(arc[-1] + float(np.linalg.norm(
+            np.asarray(path[i]) - np.asarray(path[i - 1]))))
+    total = arc[-1]
+    if total < 1e-12:
+        return [np.asarray(path[0]).copy() for _ in range(n_points)]
+    targets = [total * i / (n_points - 1) for i in range(n_points)]
+    result = []
+    j = 0
+    for t in targets:
+        while j < len(arc) - 2 and arc[j + 1] < t:
+            j += 1
+        seg = arc[j + 1] - arc[j]
+        alpha = (t - arc[j]) / seg if seg > 1e-12 else 0.0
+        result.append(np.asarray(path[j]) + alpha * (
+            np.asarray(path[j + 1]) - np.asarray(path[j])))
     return result
 
 
@@ -281,6 +316,7 @@ def plan_dual_arm_rit_star(cid, rid, arm_left_idx, arm_right_idx,
         collision_step_size=0.1,
     )
     path_14, cost = planner.plan()
+    path_found = bool(path_14)
 
     if path_14:
         print(f"[RIT*] 14-D: cost={cost:.4f}, waypoints={len(path_14)}")
@@ -290,7 +326,7 @@ def plan_dual_arm_rit_star(cid, rid, arm_left_idx, arm_right_idx,
 
     path_left  = [q[:7]  for q in path_14]
     path_right = [q[7:]  for q in path_14]
-    return path_left, path_right
+    return path_left, path_right, path_found
 
 
 def add_visual_box(cid, pos, he, color):
@@ -386,7 +422,10 @@ def compute_goal_targets():
     left_orn = horizontal_approach_quat(toward_plus_y=True)
 
     # Right hand: world +y end of box; approach along -y (into box)
-    right_pos = [BOX_X, BOX_Y + BOX_W / 2 + 0.07, target_z]
+    # Apply a -0.047 m z correction: the right arm's kinematics overshoot
+    # the commanded z by ~47 mm at this y-position, so we lower the target
+    # so the EE actually arrives level with the left arm.
+    right_pos = [BOX_X, BOX_Y + BOX_W / 2 + 0.07, target_z - 0.047]
     right_orn = horizontal_approach_quat(toward_plus_y=False)
     return left_pos, left_orn, right_pos, right_orn
 
@@ -413,12 +452,11 @@ def solve_arm_ik(cid, rid, arm_joint_indices, ee_link_idx,
                  obstacle_ids=(),
                  label="", n_seeds=60, pos_tol=0.02,
                  orn_weight=1.0):
-    """Plain damped-LS IK for a 7-DOF arm.
+    """Null-space IK for a 7-DOF arm.
 
-    Tries multiple seeds; keeps the best solution by combined position +
-    orientation error. Only the 7 arm-joint values from the IK output
-    are extracted and applied (the rest of the chain is held at whatever
-    state the caller set up before calling).
+    Uses PyBullet's joint-limit + rest-pose variant so the solver stays
+    close to the seed in the null space (particularly the wrist rotation
+    joint stays near 0, keeping the fingers straight).
     """
     rng = np.random.RandomState(0)
     arm_cols = [all_movable_indices.index(j) for j in arm_joint_indices]
@@ -432,6 +470,17 @@ def solve_arm_ik(cid, rid, arm_joint_indices, ee_link_idx,
                         physicsClientId=cid)[0]
         for i in non_arm_cols
     ]
+
+    # Build full joint limits for null-space IK
+    lower_lims, upper_lims, joint_ranges = [], [], []
+    for jidx in all_movable_indices:
+        info = p.getJointInfo(rid, jidx, physicsClientId=cid)
+        lo, hi = float(info[8]), float(info[9])
+        if lo >= hi:
+            lo, hi = -2 * np.pi, 2 * np.pi
+        lower_lims.append(lo)
+        upper_lims.append(hi)
+        joint_ranges.append(hi - lo)
 
     best = None
     best_cost = float("inf")
@@ -448,10 +497,23 @@ def solve_arm_ik(cid, rid, arm_joint_indices, ee_link_idx,
             p.resetJointState(rid, all_movable_indices[ci], v,
                               physicsClientId=cid)
 
+        # Rest poses: arm joints at seed, others at snapshot.
+        # This biases joint 7 (wrist rotation) toward 0 via the null space,
+        # keeping the fingers straight.
+        rest_poses = [0.0] * len(all_movable_indices)
+        for ci, v in zip(arm_cols, seed):
+            rest_poses[ci] = float(v)
+        for ci, v in zip(non_arm_cols, non_arm_values):
+            rest_poses[ci] = float(v)
+
         kwargs = dict(
             bodyUniqueId=rid,
             endEffectorLinkIndex=ee_link_idx,
             targetPosition=list(target_pos),
+            lowerLimits=lower_lims,
+            upperLimits=upper_lims,
+            jointRanges=joint_ranges,
+            restPoses=rest_poses,
             maxNumIterations=400,
             residualThreshold=1e-5,
             physicsClientId=cid,
@@ -514,11 +576,6 @@ def main():
     cid = p.connect(mode)
     p.setAdditionalSearchPath(pybullet_data.getDataPath(), physicsClientId=cid)
     p.setGravity(0, 0, -9.81, physicsClientId=cid)
-
-    # Ground plane
-    plane_id = p.loadURDF("plane.urdf", physicsClientId=cid)
-    p.changeVisualShape(plane_id, -1, rgbaColor=[0.78, 0.78, 0.78, 1.0],
-                        physicsClientId=cid)
 
     # Load Tiago Pro on the floor in front of the table
     tiago_orn = p.getQuaternionFromEuler([0, 0, TIAGO_YAW])
@@ -617,9 +674,13 @@ def main():
     # cross-arm interactions and self-collision are handled correctly.
     fixed_joints = {torso_idx: torso_mid}
 
+    # Freeze the display so collision-checker joint resets are not visible
+    if gui:
+        p.configureDebugVisualizer(p.COV_ENABLE_RENDERING, 0, physicsClientId=cid)
+
     dual_checker = make_dual_arm_collision_checker(
         cid, rid, arm_left_idx, arm_right_idx, fixed_joints, obstacles)
-    path_left, path_right = plan_dual_arm_rit_star(
+    path_left, path_right, path_found = plan_dual_arm_rit_star(
         cid, rid, arm_left_idx, arm_right_idx,
         q_left_home, q_left, q_right_home, q_right,
         dual_checker)
@@ -628,16 +689,11 @@ def main():
     path_left_fine  = _interp_path(path_left,  max_step=0.04)
     path_right_fine = _interp_path(path_right, max_step=0.04)
 
-    # Pad both paths to the same length by repeating the last waypoint
+    # Resample both paths to the same number of waypoints by arc length so
+    # both arms advance proportionally and finish at the same animation frame.
     N_anim = max(len(path_left_fine), len(path_right_fine))
-
-    def _pad(path, n):
-        if not path:
-            return path
-        return path + [path[-1]] * (n - len(path))
-
-    path_left_fine  = _pad(path_left_fine,  N_anim)
-    path_right_fine = _pad(path_right_fine, N_anim)
+    path_left_fine  = _resample_path(path_left_fine,  N_anim)
+    path_right_fine = _resample_path(path_right_fine, N_anim)
 
     # Reset to home before animation
     set_joint_values(cid, rid, arm_left_idx,  q_left_home)
@@ -647,9 +703,28 @@ def main():
                             targetPosition=torso_mid, force=500,
                             physicsClientId=cid)
 
+    # Re-enable rendering now that arms are back at home
+    if gui:
+        p.configureDebugVisualizer(p.COV_ENABLE_RENDERING, 1, physicsClientId=cid)
+
     if not gui:
         p.disconnect(cid)
         return
+
+    if not path_found:
+        print("[ANIM] No solution found — arm animation skipped.")
+        try:
+            while p.isConnected(physicsClientId=cid):
+                time.sleep(0.1)
+        except KeyboardInterrupt:
+            pass
+        finally:
+            p.disconnect(cid)
+        return
+
+    # Reset to home before playing the path
+    set_joint_values(cid, rid, arm_left_idx,  q_left_home)
+    set_joint_values(cid, rid, arm_right_idx, q_right_home)
 
     print(f"[ANIM] Playing RIT* path ({N_anim} waypoints per arm) ...")
     try:

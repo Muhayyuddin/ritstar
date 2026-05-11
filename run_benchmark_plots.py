@@ -37,15 +37,17 @@ from run_from_config import (
 
 PLANNER_COLORS = {
     'RIT*':          '#7B2FBE',
+    'RIT*-CARM':     '#00695C',
     'Informed RRT*': '#2196F3',
     'BIT*':          '#4CAF50',
     'AIT*':          '#FF9800',
-    'EIT*':          '#00897B',
+    'EIT*':          '#009688',
     'APT*':          '#F44336',
 }
 
 PLANNER_LINESTYLES = {
     'RIT*':          '-',
+    'RIT*-CARM':     '-',
     'Informed RRT*': '--',
     'BIT*':          '-.',
     'AIT*':          ':',
@@ -55,6 +57,7 @@ PLANNER_LINESTYLES = {
 
 PLANNER_MARKERS = {
     'RIT*':          'o',
+    'RIT*-CARM':     's',
     'Informed RRT*': 's',
     'BIT*':          '^',
     'AIT*':          'D',
@@ -65,8 +68,16 @@ PLANNER_MARKERS = {
 # ── Data collection ───────────────────────────────────────────────────
 
 def _collect_data(env_name, env_fn, planners, n_trials, max_iterations,
-                  batch_size, base_seed):
+                  batch_size, base_seed, timeout_seconds=200):
     """Run all planners on one environment for n_trials, return stats."""
+    import signal
+
+    class _TimeoutError(Exception):
+        pass
+
+    def _alarm_handler(signum, frame):  # noqa: ARG001
+        raise _TimeoutError()
+
     coll, _, metric, xs, xg, bounds = env_fn()
     results = {}
 
@@ -78,11 +89,23 @@ def _collect_data(env_name, env_fn, planners, n_trials, max_iterations,
             planner = _build_planner(
                 pname, xs, xg, bounds, coll, metric,
                 batch_size, max_iterations, seed)
-            planner.plan()
+            timed_out = False
+            try:
+                signal.signal(signal.SIGALRM, _alarm_handler)
+                signal.alarm(timeout_seconds)
+                planner.plan()
+            except _TimeoutError:
+                timed_out = True
+            finally:
+                signal.alarm(0)
             stats = planner.get_stats()
+            if timed_out and stats:
+                # Mark the last recorded snapshot as a timeout
+                stats[-1]['timed_out'] = True
             trial_stats.append(stats)
             c = stats[-1]['c_best'] if stats else np.inf
-            print(f'{c:.3f}', end=' ', flush=True)
+            suffix = 'T' if timed_out else ''
+            print(f'{c:.3f}{suffix}', end=' ', flush=True)
             del planner
         gc.collect()
         results[pname] = trial_stats
@@ -204,43 +227,61 @@ def plot_benchmark(env_name, results, planners, out_dir):
     ax_sr.grid(True, which='minor', alpha=0.12, linestyle=':')
     ax_sr.set_title(env_name, pad=6)
 
-    # ── Bottom: Cost vs time (median + IQR) ──
+    # ── Bottom: Cost vs time (median + two-band CI, Fig.6 style) ──────
+    # Outer band: 5th–95th percentile  (light, ~nonparametric 90% CI)
+    # Inner band: 25th–75th percentile (IQR, darker)
+    # Median line on top.  First-solution time marked with a small dot.
+    import warnings
+    from matplotlib.ticker import LogLocator, NullFormatter
     finite_mins = []
     for pname in planners:
         interp = _interpolate_cost_vs_time(results[pname], t_grid)
         color = PLANNER_COLORS.get(pname, 'gray')
         ls = PLANNER_LINESTYLES.get(pname, '-')
+        mk = PLANNER_MARKERS.get(pname, 'o')
 
-        # Replace inf with NaN for percentile calculations
         interp_masked = np.where(np.isinf(interp), np.nan, interp)
-        import warnings
         with warnings.catch_warnings():
             warnings.simplefilter('ignore', RuntimeWarning)
             median_c = np.nanmedian(interp_masked, axis=0)
             q25 = np.nanpercentile(interp_masked, 25, axis=0)
             q75 = np.nanpercentile(interp_masked, 75, axis=0)
 
-        # Only plot where at least one trial has a finite cost
         valid = np.any(np.isfinite(interp), axis=0)
         t_valid = t_grid[valid]
-        m_valid = median_c[valid]
-        q25_valid = q25[valid]
-        q75_valid = q75[valid]
+        m_valid  = median_c[valid]
+        q25_v = q25[valid]
+        q75_v = q75[valid]
 
-        if len(t_valid) > 0:
-            ax_cost.plot(t_valid, m_valid, color=color, lw=2.4, ls=ls,
-                         label=pname)
-            ax_cost.fill_between(t_valid, q25_valid, q75_valid,
-                                 color=color, alpha=0.18)
-            fc = m_valid[np.isfinite(m_valid)]
-            if len(fc) > 0:
-                finite_mins.append(np.nanmin(fc))
+        if len(t_valid) == 0:
+            continue
+
+        # IQR band (25–75 %) + median line
+        ax_cost.fill_between(t_valid, q25_v, q75_v, color=color, alpha=0.22)
+        ax_cost.plot(t_valid, m_valid, color=color, lw=2.4, ls=ls, label=pname)
+
+        # Mark first-solution time with a filled dot on the median line
+        first_valid_idx = np.argmax(np.isfinite(m_valid))
+        if np.isfinite(m_valid[first_valid_idx]):
+            ax_cost.plot(t_valid[first_valid_idx], m_valid[first_valid_idx],
+                         marker=mk, color=color, markersize=6,
+                         zorder=5, linestyle='none')
+
+        fc = m_valid[np.isfinite(m_valid)]
+        if len(fc) > 0:
+            finite_mins.append(np.nanmin(fc))
 
     ax_cost.set_xlabel('Computation time [s]')
     ax_cost.set_ylabel('Cost')
     ax_cost.set_xscale('log')
-    ax_cost.grid(True, which='major', alpha=0.30)
-    ax_cost.grid(True, which='minor', alpha=0.12, linestyle=':')
+    # Major + minor log gridlines (matches Fig. 6 style)
+    ax_cost.grid(True, which='major', alpha=0.35)
+    ax_cost.grid(True, which='minor', alpha=0.15, linestyle=':')
+    ax_cost.xaxis.set_minor_locator(LogLocator(subs='all', numticks=10))
+    ax_cost.xaxis.set_minor_formatter(NullFormatter())
+    ax_sr.grid(True, which='minor', alpha=0.15, linestyle=':')
+    ax_sr.xaxis.set_minor_locator(LogLocator(subs='all', numticks=10))
+    ax_sr.xaxis.set_minor_formatter(NullFormatter())
 
     # Sensible y-limits
     if finite_mins:
@@ -269,20 +310,25 @@ def plot_benchmark(env_name, results, planners, out_dir):
 
     # Legend below the bottom plot — 2 columns, tight spacing
     handles, labels = ax_cost.get_legend_handles_labels()
+    n_legend_cols = min(len(planners), 3)
+    # Estimate legend height: ~0.055 per row of entries at the figure scale
+    n_legend_rows = int(np.ceil(len(handles) / n_legend_cols))
+    legend_height = 0.055 * n_legend_rows
     fig.legend(handles, labels, loc='lower center',
-               ncol=min(len(planners), 3), fontsize=9,
+               ncol=n_legend_cols, fontsize=9,
                bbox_to_anchor=(0.5, 0.0),
                frameon=True, fancybox=True, shadow=False,
                edgecolor='#bfbfbf', handlelength=2.0,
                columnspacing=1.0, handletextpad=0.5)
 
     fig.tight_layout(pad=0.4)
-    fig.subplots_adjust(bottom=0.18)
+    # Reserve enough bottom space so the legend clears the x-axis label
+    fig.subplots_adjust(bottom=0.10 + legend_height + 0.10)
 
     # Save (PDF for vector paper inclusion, PNG for quick preview)
     safe = env_name.lower().replace(' ', '_').replace('-', '_')
-    out_path = os.path.join(out_dir, f'benchmark_{safe}.pdf')
-    out_png = os.path.join(out_dir, f'benchmark_{safe}.png')
+    out_path = os.path.join(out_dir, f'benchmark_updated_{safe}.pdf')
+    out_png = os.path.join(out_dir, f'benchmark_updated_{safe}.png')
     fig.savefig(out_path, bbox_inches='tight', pad_inches=0.05)
     fig.savefig(out_png, bbox_inches='tight', pad_inches=0.05)
     plt.close(fig)
@@ -362,15 +408,17 @@ def plot_combined(all_results, planners, out_dir):
         ax_sr.set_title(env_name, fontsize=10)
         ax_sr.tick_params(labelbottom=False)
 
-        # Cost
+        # Cost — two-band CI style matching Fig. 6
+        import warnings
+        from matplotlib.ticker import LogLocator, NullFormatter
         for pname in planners:
             if pname not in results:
                 continue
             interp = _interpolate_cost_vs_time(results[pname], t_grid)
             color = PLANNER_COLORS.get(pname, 'gray')
             ls = PLANNER_LINESTYLES.get(pname, '-')
+            mk = PLANNER_MARKERS.get(pname, 'o')
             interp_masked = np.where(np.isinf(interp), np.nan, interp)
-            import warnings
             with warnings.catch_warnings():
                 warnings.simplefilter('ignore', RuntimeWarning)
                 median_c = np.nanmedian(interp_masked, axis=0)
@@ -379,15 +427,26 @@ def plot_combined(all_results, planners, out_dir):
             valid = np.any(np.isfinite(interp), axis=0)
             t_v = t_grid[valid]
             m_v = median_c[valid]
-            if len(t_v) > 0:
-                ax_cost.plot(t_v, m_v, color=color, lw=1.5, ls=ls)
-                ax_cost.fill_between(t_v, q25[valid], q75[valid],
-                                     color=color, alpha=0.12)
+            if len(t_v) == 0:
+                continue
+            ax_cost.fill_between(t_v, q25[valid], q75[valid], color=color, alpha=0.22)
+            ax_cost.plot(t_v, m_v, color=color, lw=1.5, ls=ls)
+            # First-solution dot
+            fi = np.argmax(np.isfinite(m_v))
+            if np.isfinite(m_v[fi]):
+                ax_cost.plot(t_v[fi], m_v[fi], marker=mk, color=color,
+                             markersize=5, zorder=5, linestyle='none')
 
         ax_cost.set_xlabel('Computation time [s]')
         ax_cost.set_ylabel('Cost')
         ax_cost.set_xscale('log')
-        ax_cost.grid(True, alpha=0.25)
+        ax_cost.grid(True, which='major', alpha=0.30)
+        ax_cost.grid(True, which='minor', alpha=0.12, linestyle=':')
+        ax_cost.xaxis.set_minor_locator(LogLocator(subs='all', numticks=10))
+        ax_cost.xaxis.set_minor_formatter(NullFormatter())
+        ax_sr.xaxis.set_minor_locator(LogLocator(subs='all', numticks=10))
+        ax_sr.xaxis.set_minor_formatter(NullFormatter())
+        ax_sr.grid(True, which='minor', alpha=0.12, linestyle=':')
 
         # Y-limits
         fc = []
@@ -412,15 +471,18 @@ def plot_combined(all_results, planners, out_dir):
 
     # Shared legend below all panels
     handles, labels = axes[0][0].get_legend_handles_labels()
+    n_legend_cols = min(len(planners), 6)
+    n_legend_rows = int(np.ceil(len(handles) / n_legend_cols))
+    legend_frac = 0.045 * n_legend_rows  # fraction of figure height per row
     fig.legend(handles, labels, loc='lower center',
-               ncol=min(len(planners), 6), fontsize=8,
+               ncol=n_legend_cols, fontsize=8,
                bbox_to_anchor=(0.5, 0.0),
                frameon=True, fancybox=True, edgecolor='#cccccc')
 
-    fig.tight_layout(rect=[0, 0.04, 1, 1])
+    fig.tight_layout(rect=[0, legend_frac + 0.04, 1, 1])
 
-    out_path = os.path.join(out_dir, 'benchmark_combined.pdf')
-    out_png = os.path.join(out_dir, 'benchmark_combined.png')
+    out_path = os.path.join(out_dir, 'benchmark_combined_updated.pdf')
+    out_png = os.path.join(out_dir, 'benchmark_combined_updated.png')
     fig.savefig(out_path, bbox_inches='tight')
     fig.savefig(out_png, bbox_inches='tight')
     plt.close(fig)
@@ -547,100 +609,142 @@ def generate_table_ii(all_results, planners, out_dir, n_trials=10):
             print(line)
         print('  ' + '-' * 140)
 
-    # ── CSV ───────────────────────────────────────────────────────────
-    csv_path = os.path.join(out_dir, 'benchmark_table_ii.csv')
+    # ── CSV (saved to plots dir and results/) ────────────────────────
+    from visualization_util.output_paths import RESULTS_DIR
     fieldnames = ['env', 'planner'] + col_keys + ['success']
-    with open(csv_path, 'w', newline='') as f:
-        writer = csv.DictWriter(f, fieldnames=fieldnames)
-        writer.writeheader()
-        for r in rows:
-            writer.writerow(r)
-    print(f'\n  -> Table II CSV saved to {csv_path}')
+    for save_dir in (out_dir, RESULTS_DIR):
+        csv_path = os.path.join(save_dir, 'benchmark_table_ii.csv')
+        with open(csv_path, 'w', newline='') as f:
+            writer = csv.DictWriter(f, fieldnames=fieldnames)
+            writer.writeheader()
+            for r in rows:
+                writer.writerow(r)
+        print(f'  -> Table II CSV saved to {csv_path}')
 
     # ── LaTeX ─────────────────────────────────────────────────────────
     _generate_latex_table_ii(rows, all_results, planners, out_dir)
 
 
 def _generate_latex_table_ii(rows, all_results, planners, out_dir):
-    """Generate a LaTeX-formatted table similar to APT* Table II."""
+    """Generate a booktabs LaTeX table matching APT* paper Table II style.
+
+    Requires in the document preamble:
+        \\usepackage{booktabs}
+        \\usepackage{multirow}
+
+    One table per environment.  Best value per column is bold.
+    Unsuccessful runs show $\\infty$.  Caption mirrors APT* Table II note.
+    Saved to out_dir AND results/ for direct paper inclusion.
+    """
+    from visualization_util.output_paths import RESULTS_DIR
+
     col_keys = ['t_init_min', 't_init_med', 't_init_max',
                 'c_init_min', 'c_init_med', 'c_init_max',
                 'c_final_min', 'c_final_med', 'c_final_max']
-    tex_headers = [
-        r'$t^{\min}_{\mathrm{init}}$',
-        r'$t^{\mathrm{med}}_{\mathrm{init}}$',
-        r'$t^{\max}_{\mathrm{init}}$',
-        r'$c^{\min}_{\mathrm{init}}$',
-        r'$c^{\mathrm{med}}_{\mathrm{init}}$',
-        r'$c^{\max}_{\mathrm{init}}$',
-        r'$c^{\min}_{\mathrm{final}}$',
-        r'$c^{\mathrm{med}}_{\mathrm{final}}$',
-        r'$c^{\max}_{\mathrm{final}}$',
+
+    # Sub-column headers matching APT* paper notation
+    sub_headers = [
+        r'min', r'med', r'max',
+        r'min', r'med', r'max',
+        r'min', r'med', r'max',
     ]
 
-    lines = []
+    def _cell(val, best_val):
+        if not np.isfinite(val):
+            return r'$\infty$'
+        s = f'{val:.4f}'
+        if np.isfinite(best_val) and abs(val - best_val) < 1e-9:
+            s = r'\textbf{' + s + r'}'
+        return s
+
+    all_lines = [
+        r'% ─────────────────────────────────────────────────────────',
+        r'% Benchmark Table II  (APT* paper style)',
+        r'% Requires: \usepackage{booktabs,multirow} in preamble',
+        r'% Auto-generated by _generate_latex_table_ii()',
+        r'% ─────────────────────────────────────────────────────────',
+        '',
+    ]
+
     for env_name in all_results:
         env_rows = [r for r in rows if r['env'] == env_name]
         if not env_rows:
             continue
 
-        safe_env = env_name.replace('_', r'\_')
-        lines.append(r'\begin{table}[t]')
-        lines.append(r'\centering')
         n_runs = len(next(iter(all_results[env_name].values())))
-        lines.append(r'\caption{Performance comparison in ' + safe_env
-                     + ' over ' + str(n_runs) + ' runs.}')
-        lines.append(r'\label{tab:table_ii_' + env_name.lower().replace(' ', '_') + '}')
-        lines.append(r'\resizebox{\columnwidth}{!}{%')
+        safe_env = env_name.replace('_', r'\_').replace('&', r'\&')
+        label_key = env_name.lower().replace(' ', '_').replace('-', '_')
 
-        col_spec = '|l|' + 'c' * 3 + '|' + 'c' * 3 + '|' + 'c' * 3 + '|c|'
-        lines.append(r'\begin{tabular}{' + col_spec + '}')
-        lines.append(r'\hline')
-
-        # Group headers
-        lines.append(
-            r' & \multicolumn{3}{c|}{$t_{\mathrm{init}}$}'
-            r' & \multicolumn{3}{c|}{$c_{\mathrm{init}}$}'
-            r' & \multicolumn{3}{c|}{$c_{\mathrm{final}}$}'
-            r' & \\'
-        )
-        sub = ' & '.join([''] + tex_headers + [r'$S$ (\%)']) + r' \\'
-        lines.append(sub)
-        lines.append(r'\hline')
-
-        # Best values per column
+        # Best value per column (lower is better; higher SR is better)
         best = {}
         for key in col_keys:
             vals = [r[key] for r in env_rows if np.isfinite(r[key])]
             best[key] = min(vals) if vals else np.inf
         best_sr = max(r['success'] for r in env_rows)
 
+        L = all_lines  # alias for brevity
+        L.append(r'\begin{table}[t]')
+        L.append(r'\centering')
+        L.append(r'\setlength{\tabcolsep}{4pt}')
+        L.append(
+            r'\caption{Performance comparison in \textbf{' + safe_env + r'} '
+            r'over ' + str(n_runs) + r' runs. '
+            r'Here, $t$ and $c$ denote time~(s) and path cost; '
+            r'\textit{init} and \textit{final} refer to the initial and final '
+            r'solutions; min, med, and max are over trials. '
+            r'\textbf{Bold}: best per column. '
+            r'Failed runs: $\infty$.}'
+        )
+        L.append(r'\label{tab:perf_' + label_key + r'}')
+        L.append(r'\resizebox{\columnwidth}{!}{%')
+        # col spec: planner name | 3 t_init | 3 c_init | 3 c_final | SR
+        L.append(r'\begin{tabular}{@{}l rrr rrr rrr r@{}}')
+        L.append(r'\toprule')
+
+        # ── Row 1: group headers ──────────────────────────────────────
+        L.append(
+            r' & \multicolumn{3}{c}{$t_{\mathrm{init}}$~(s)}'
+            r' & \multicolumn{3}{c}{$c_{\mathrm{init}}$}'
+            r' & \multicolumn{3}{c}{$c_{\mathrm{final}}$}'
+            r' & \\'
+        )
+        # cmidrule under each group (cols 2-4, 5-7, 8-10)
+        L.append(
+            r'\cmidrule(lr){2-4}\cmidrule(lr){5-7}'
+            r'\cmidrule(lr){8-10}'
+        )
+
+        # ── Row 2: sub-column headers ─────────────────────────────────
+        sub_row = r'Planner & ' + ' & '.join(sub_headers) + r' & $S$~(\%) \\'
+        L.append(sub_row)
+        L.append(r'\midrule')
+
+        # ── Data rows ─────────────────────────────────────────────────
         for r in env_rows:
-            cells = [r['planner'].replace('*', r'$^*$')]
+            pname = r['planner'].replace('*', r'$^{*}$')
+            cells = [pname]
             for key in col_keys:
-                val = r[key]
-                if not np.isfinite(val):
-                    cells.append(r'$\infty$')
-                elif abs(val - best[key]) < 1e-9:
-                    cells.append(r'\textbf{' + f'{val:.4f}' + '}')
-                else:
-                    cells.append(f'{val:.4f}')
+                cells.append(_cell(r[key], best[key]))
             sr = r['success'] * 100
+            sr_str = f'{sr:.0f}'
             if abs(r['success'] - best_sr) < 1e-9:
-                cells.append(r'\textbf{' + f'{sr:.0f}' + '}')
-            else:
-                cells.append(f'{sr:.0f}')
-            lines.append(' & '.join(cells) + r' \\')
+                sr_str = r'\textbf{' + sr_str + r'}'
+            cells.append(sr_str)
+            L.append(' & '.join(cells) + r' \\')
 
-        lines.append(r'\hline')
-        lines.append(r'\end{tabular}}')
-        lines.append(r'\end{table}')
-        lines.append('')
+        L.append(r'\bottomrule')
+        L.append(r'\end{tabular}}')
+        L.append(r'\end{table}')
+        L.append('')
 
-    tex_path = os.path.join(out_dir, 'benchmark_table_ii.tex')
-    with open(tex_path, 'w') as f:
-        f.write('\n'.join(lines))
-    print(f'  -> Table II LaTeX saved to {tex_path}')
+    tex_content = '\n'.join(all_lines)
+
+    # Save to plots dir and results dir
+    for save_dir in (out_dir, RESULTS_DIR):
+        tex_path = os.path.join(save_dir, 'benchmark_table_ii.tex')
+        with open(tex_path, 'w') as f:
+            f.write(tex_content)
+        print(f'  -> Table II LaTeX saved to {tex_path}')
 
 
 # ── Aggregated-across-envs benchmark table ───────────────────────────

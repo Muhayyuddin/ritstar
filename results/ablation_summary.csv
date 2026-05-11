@@ -1,31 +1,21 @@
 variant,env,cost_mean,cost_std,time_mean_s,n_success
-full,3D Diagonal,2.318937,0.032570,9.8629,10
-full,UR10_pick_shelf,2.625187,0.266274,21.0967,10
-full,UR10_pick_place_can,1.696362,0.395977,12.7753,20
-full,UR10_grasp_can,2.183813,0.369982,13.5422,10
-full,UR10_pick_place_can,1.696362,0.395977,12.7753,20
-full,UR10_pick_place_drill,1.488941,0.081994,14.4477,10
-no_riem_samp,3D Diagonal,2.475982,0.183788,10.1244,10
-no_riem_samp,UR10_pick_shelf,2.347380,0.267907,147.5322,10
-no_riem_samp,UR10_pick_place_can,1.732444,0.402722,17.1024,20
-no_riem_samp,UR10_grasp_can,2.047010,0.249537,65.8759,10
-no_riem_samp,UR10_pick_place_can,1.732444,0.402722,17.1024,20
-no_riem_samp,UR10_pick_place_drill,1.464075,0.071048,80.3699,10
-no_cascading,3D Diagonal,inf,0.000000,0.0000,0
-no_cascading,UR10_pick_shelf,inf,0.000000,0.0000,0
-no_cascading,UR10_pick_place_can,inf,0.000000,0.0000,0
-no_cascading,UR10_grasp_can,inf,0.000000,0.0000,0
-no_cascading,UR10_pick_place_can,inf,0.000000,0.0000,0
-no_cascading,UR10_pick_place_drill,inf,0.000000,0.0000,0
-no_carm,3D Diagonal,2.185777,0.041328,0.9312,10
-no_carm,UR10_pick_shelf,2.562770,0.221932,21.2613,10
-no_carm,UR10_pick_place_can,1.860552,0.489687,1.9429,20
-no_carm,UR10_grasp_can,2.183810,0.369984,2.7820,10
-no_carm,UR10_pick_place_can,1.860552,0.489687,1.9429,20
-no_carm,UR10_pick_place_drill,1.484409,0.085714,1.3948,10
-no_smoothing,3D Diagonal,2.443606,0.035338,9.6227,10
-no_smoothing,UR10_pick_shelf,2.728846,0.222015,19.8410,10
-no_smoothing,UR10_pick_place_can,3.660294,0.971561,11.8686,20
-no_smoothing,UR10_grasp_can,3.544684,0.648340,11.4553,10
-no_smoothing,UR10_pick_place_can,3.660294,0.971561,11.8686,20
-no_smoothing,UR10_pick_place_drill,1.537266,0.057886,13.3101,10
+full,2D Random World,1.063428,0.010295,1.2245,10
+full,3D Diagonal,2.319666,0.031794,11.0556,10
+full,UR10_pick_place_drill,1.488941,0.081994,14.5452,10
+full,Tiago 14D simple,8.636688,0.143583,1192.3276,10
+no_riem_samp,2D Random World,1.066065,0.012236,1.3764,10
+no_riem_samp,3D Diagonal,2.469386,0.187828,12.3677,10
+no_riem_samp,UR10_pick_place_drill,1.463410,0.070736,83.2855,10
+no_riem_samp,Tiago 14D simple,8.638675,0.165501,805.5413,10
+no_cascading,2D Random World,1.067971,0.013184,1.1910,10
+no_cascading,3D Diagonal,2.324899,0.020727,11.7908,10
+no_cascading,UR10_pick_place_drill,1.488938,0.081993,14.6622,10
+no_cascading,Tiago 14D simple,8.639277,0.143920,1266.6438,10
+no_carm,2D Random World,0.913460,0.003104,0.5853,10
+no_carm,3D Diagonal,2.173655,0.032784,1.3619,10
+no_carm,UR10_pick_place_drill,1.484409,0.085714,1.4959,10
+no_carm,Tiago 14D simple,8.595419,0.020542,34.0568,10
+no_smoothing,2D Random World,1.069375,0.012570,1.2239,10
+no_smoothing,3D Diagonal,2.438371,0.033821,11.2906,10
+no_smoothing,UR10_pick_place_drill,1.537266,0.057886,13.9947,10
+no_smoothing,Tiago 14D simple,9.396479,0.189064,1190.7784,10
