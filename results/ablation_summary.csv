@@ -1,21 +1,21 @@
 variant,env,cost_mean,cost_std,time_mean_s,n_success
-full,2D Random World,1.063428,0.010295,1.2245,10
-full,3D Diagonal,2.319666,0.031794,11.0556,10
-full,UR10_pick_place_drill,1.488941,0.081994,14.5452,10
-full,Tiago 14D simple,8.636688,0.143583,1192.3276,10
-no_riem_samp,2D Random World,1.066065,0.012236,1.3764,10
-no_riem_samp,3D Diagonal,2.469386,0.187828,12.3677,10
-no_riem_samp,UR10_pick_place_drill,1.463410,0.070736,83.2855,10
-no_riem_samp,Tiago 14D simple,8.638675,0.165501,805.5413,10
-no_cascading,2D Random World,1.067971,0.013184,1.1910,10
-no_cascading,3D Diagonal,2.324899,0.020727,11.7908,10
-no_cascading,UR10_pick_place_drill,1.488938,0.081993,14.6622,10
-no_cascading,Tiago 14D simple,8.639277,0.143920,1266.6438,10
-no_carm,2D Random World,0.913460,0.003104,0.5853,10
-no_carm,3D Diagonal,2.173655,0.032784,1.3619,10
-no_carm,UR10_pick_place_drill,1.484409,0.085714,1.4959,10
-no_carm,Tiago 14D simple,8.595419,0.020542,34.0568,10
-no_smoothing,2D Random World,1.069375,0.012570,1.2239,10
-no_smoothing,3D Diagonal,2.438371,0.033821,11.2906,10
-no_smoothing,UR10_pick_place_drill,1.537266,0.057886,13.9947,10
-no_smoothing,Tiago 14D simple,9.396479,0.189064,1190.7784,10
+full,2D Random World,0.920924,0.007090,1.2407,10
+full,3D Diagonal,2.195810,0.026589,11.2482,10
+full,UR10_pick_place_drill,1.488934,0.081998,14.6795,10
+full,Tiago 14D simple,8.638002,0.144043,303.7074,10
+no_riem_samp,2D Random World,0.915601,0.002194,1.3296,10
+no_riem_samp,3D Diagonal,2.388306,0.182293,11.7748,10
+no_riem_samp,UR10_pick_place_drill,1.458752,0.074697,63.8270,9
+no_riem_samp,Tiago 14D simple,9.225728,0.935427,220.7834,10
+no_cascading,2D Random World,0.920134,0.007567,1.1490,10
+no_cascading,3D Diagonal,2.194920,0.017400,11.2153,10
+no_cascading,UR10_pick_place_drill,1.488930,0.081996,14.1165,10
+no_cascading,Tiago 14D simple,8.638001,0.144042,291.9093,10
+no_carm,2D Random World,0.913460,0.003104,0.5520,10
+no_carm,3D Diagonal,2.173655,0.032784,1.2254,10
+no_carm,UR10_pick_place_drill,1.484409,0.085714,1.4128,10
+no_carm,Tiago 14D simple,8.586085,0.012074,29.2121,10
+no_smoothing,2D Random World,0.927214,0.010193,1.1596,10
+no_smoothing,3D Diagonal,2.310232,0.030813,10.5893,10
+no_smoothing,UR10_pick_place_drill,1.537259,0.057895,13.4385,10
+no_smoothing,Tiago 14D simple,9.396444,0.189062,276.0836,10

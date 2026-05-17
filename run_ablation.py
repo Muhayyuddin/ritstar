@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import csv
 import os
+import signal
 import sys
 import time
 import numpy as np
@@ -29,7 +30,15 @@ import numpy as np
 _HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, _HERE)
 
-from rit_star.rit_star import RITStar
+from rit_star.rit_star import RITStar, riemannian_edge_cost
+
+
+class _TrialTimeout(Exception):
+    pass
+
+
+def _timeout_handler(signum, frame):
+    raise _TrialTimeout()
 
 
 # ── Variant definitions ────────────────────────────────────────────────
@@ -43,12 +52,12 @@ VARIANTS = [
 ]
 
 # (env_id, display_label) — env_id must match ENV_REGISTRY in run_from_config
+# Must match the 4 environments listed in the paper's ablation table (Table III).
 DEFAULT_ENVS = [
-    ('2D Maze',            '2D Maze'),
-    ('3D Spheres',         '3D Sph.'),
-    ('6D Shelf',           '6D Shelf'),
-    ('6D Cluttered',       '6D Clut.'),
-    ('Tiago 14D simple',   '14D Tiago'),
+    ('2D Random World',       '2D R.W.'),
+    ('3D Diagonal',           '3D Diag.'),
+    ('UR10_pick_place_drill', '6D Drill'),
+    ('Tiago 14D simple',      '14D Tiago'),
 ]
 
 
@@ -90,14 +99,25 @@ def _run_one_trial(env_name: str, env_fn, variant: dict,
     _apply_variant(planner, variant)
 
     t0 = time.time()
-    path, cost = planner.plan()
+    path, _ = planner.plan()
     elapsed = time.time() - t0
+
+    # Always evaluate final cost with the BASE metric (strip CARM if active)
+    # so that all variants are on the same cost scale for fair comparison.
+    eval_metric = planner._carm.base if planner._carm is not None else planner.metric
+    if path and len(path) > 1:
+        base_cost = sum(
+            riemannian_edge_cost(path[i], path[i + 1], eval_metric)
+            for i in range(len(path) - 1)
+        )
+    else:
+        base_cost = float('inf')
 
     return {
         'env': env_name,
         'trial': trial,
         'seed': seed,
-        'final_cost': float(cost) if np.isfinite(cost) else float('inf'),
+        'final_cost': float(base_cost),
         'time_s': float(elapsed),
         'path_len': int(len(path)) if path else 0,
     }
@@ -110,9 +130,15 @@ def run_ablation(cfg: dict) -> None:
     from run_from_config import ENV_REGISTRY
 
     n_trials = int(cfg.get('ablation_n_trials', 10))
-    max_iter = int(cfg.get('ablation_max_iterations', 150))
+    max_iter = int(cfg.get('ablation_max_iterations', 200))
     batch_sz = int(cfg.get('ablation_batch_size', 100))
     base_seed = int(cfg.get('ablation_base_seed', 42))
+    trial_timeout = int(cfg.get('ablation_trial_timeout', 350))  # seconds
+    # Allow fewer iterations for expensive high-D environments
+    env_max_iter_override = {
+        'Tiago 14D simple': int(cfg.get('ablation_tiago_max_iterations', 50)),
+        'Tiago 14D':        int(cfg.get('ablation_tiago_max_iterations', 50)),
+    }
 
     requested_envs = cfg.get('ablation_envs') or [e[0] for e in DEFAULT_ENVS]
     env_labels = dict(DEFAULT_ENVS)
@@ -133,9 +159,10 @@ def run_ablation(cfg: dict) -> None:
     print(f'  Variants:   {[v[0] for v in VARIANTS]}')
     print(f'  Envs:       {[e[0] for e in envs]}')
     print(f'  Trials:     {n_trials}')
-    print(f'  Max iters:  {max_iter}')
+    print(f'  Max iters:  {max_iter} (Tiago: {env_max_iter_override.get("Tiago 14D simple", max_iter)})')
     print(f'  Batch size: {batch_sz}')
     print(f'  Base seed:  {base_seed}')
+    print(f'  Timeout:    {trial_timeout}s/trial')
     print('=' * 60)
 
     os.makedirs(RESULTS_DIR, exist_ok=True)
@@ -147,12 +174,22 @@ def run_ablation(cfg: dict) -> None:
             for t in range(n_trials):
                 seed = base_seed + t
                 print(f'    Trial {t+1}/{n_trials} ...', end=' ', flush=True)
+                signal.signal(signal.SIGALRM, _timeout_handler)
+                signal.alarm(trial_timeout)
                 try:
                     r = _run_one_trial(env_name, env_fn, v_kwargs,
                                        trial=t, seed=seed,
                                        batch_size=batch_sz,
-                                       max_iterations=max_iter)
+                                       max_iterations=env_max_iter_override.get(env_name, max_iter))
+                    signal.alarm(0)  # cancel alarm on success
+                except _TrialTimeout:
+                    signal.alarm(0)
+                    print(f'TIMEOUT ({trial_timeout}s)')
+                    r = {'env': env_name, 'trial': t, 'seed': seed,
+                         'final_cost': float('inf'), 'time_s': float(trial_timeout),
+                         'path_len': 0}
                 except Exception as exc:
+                    signal.alarm(0)
                     print(f'FAILED: {exc}')
                     r = {'env': env_name, 'trial': t, 'seed': seed,
                          'final_cost': float('inf'), 'time_s': 0.0,

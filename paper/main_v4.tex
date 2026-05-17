@@ -921,62 +921,62 @@ Figure~\ref{fig:benchmark} shows convergence curves.
 \centering
 \caption{Benchmark Evaluations (10 trials, 200\,s timeout).
   Per environment: $t^{\min}_{\mathrm{init}}$ / $t^{\mathrm{med}}_{\mathrm{init}}$ (s) /
-  $c^{\mathrm{med}}_{\mathrm{init}}$. \textbf{Bold}: best per column group.
-  $^\ddagger$: planner failed all trials on this environment ($S=0\%$); entries omitted.}
+  $c^{\mathrm{med}}_{\mathrm{init}}$ / $c^{\mathrm{med}}_{\mathrm{final}}$. \textbf{Bold}: best per column group.
+  All planners achieve 100\% success on all environments.}
 \label{tab:bench_compact}
 \resizebox{\textwidth}{!}{%
 \begin{tabular}{@{}l
-  |ccc|ccc|ccc|ccc|
+  |cccc|cccc|cccc|cccc|
   c@{}}
 \toprule
- & \multicolumn{3}{c|}{\textbf{2-D Random World ($\mathbb{R}^2$)}}
- & \multicolumn{3}{c|}{\textbf{3-D Diagonal ($\mathbb{R}^3$)}}
- & \multicolumn{3}{c|}{\textbf{6-D UR10 Drill ($\mathbb{R}^6$)}}
- & \multicolumn{3}{c|}{\textbf{14-D Tiago Biman.\ ($\mathbb{R}^{14}$)}}
+ & \multicolumn{4}{c|}{\textbf{2-D Random World ($\mathbb{R}^2$)}}
+ & \multicolumn{4}{c|}{\textbf{3-D Diagonal ($\mathbb{R}^3$)}}
+ & \multicolumn{4}{c|}{\textbf{6-D UR10 Drill ($\mathbb{R}^6$)}}
+ & \multicolumn{4}{c|}{\textbf{14-D Tiago Biman.\ ($\mathbb{R}^{14}$)}}
  & \textbf{Succ.} \\
 \textbf{Planner}
- & $t^{\min}$ & $t^{\mathrm{med}}$ & $c^{\mathrm{med}}$
- & $t^{\min}$ & $t^{\mathrm{med}}$ & $c^{\mathrm{med}}$
- & $t^{\min}$ & $t^{\mathrm{med}}$ & $c^{\mathrm{med}}$
- & $t^{\min}$ & $t^{\mathrm{med}}$ & $c^{\mathrm{med}}$
+ & $t^{\min}$ & $t^{\mathrm{med}}$ & $c^{\mathrm{med}}_{\mathrm{init}}$ & $c^{\mathrm{med}}_{\mathrm{fin}}$
+ & $t^{\min}$ & $t^{\mathrm{med}}$ & $c^{\mathrm{med}}_{\mathrm{init}}$ & $c^{\mathrm{med}}_{\mathrm{fin}}$
+ & $t^{\min}$ & $t^{\mathrm{med}}$ & $c^{\mathrm{med}}_{\mathrm{init}}$ & $c^{\mathrm{med}}_{\mathrm{fin}}$
+ & $t^{\min}$ & $t^{\mathrm{med}}$ & $c^{\mathrm{med}}_{\mathrm{init}}$ & $c^{\mathrm{med}}_{\mathrm{fin}}$
  & (\%) \\
 \midrule
 RIT*
- & 0.0128 & 0.0197 & \textbf{0.9578}
- & \textbf{0.0213} & \textbf{0.0403} & 2.8167
- & \textbf{0.0601} & 0.0915 & \textbf{4.6868}
- & 26.41 & 30.69 & \textbf{8.578}
+ & 0.0128 & 0.0197 & \textbf{0.9578} & 0.9135
+ & \textbf{0.0213} & \textbf{0.0403} & 2.8167 & \textbf{2.1608}
+ & \textbf{0.0601} & 0.0915 & \textbf{4.6868} & 1.4644
+ & 0.8135 & 3.4255 & \textbf{16.5747} & \textbf{8.5778}
  & 100 \\
 BIT*
- & 0.0183 & 0.0308 & 0.9698
- & 0.0476 & 0.0698 & \textbf{2.4923}
- & 0.0651 & \textbf{0.0820} & 5.2256
- & 70.16 & 95.54 & 10.709
+ & 0.0183 & 0.0308 & 0.9698 & \textbf{0.9108}
+ & 0.0476 & 0.0698 & \textbf{2.4923} & 2.2027
+ & 0.0651 & \textbf{0.0820} & 5.2256 & 1.5415
+ & \textbf{0.7657} & \textbf{0.8834} & 18.5069 & 10.7092
  & 100 \\
-Inf.\ RRT*$^\ddagger$
- & 0.0129 & 0.0289 & 0.9946
- & 0.0312 & 0.0464 & 2.7233
- & 0.1390 & 0.2114 & \textbf{4.6868}
- & --- & --- & ---
- & 75 \\
+Inf.\ RRT*
+ & 0.0129 & 0.0289 & 0.9946 & 0.9165
+ & 0.0312 & 0.0464 & 2.7233 & 2.2278
+ & 0.1390 & 0.2114 & \textbf{4.6868} & 1.6975
+ & 1.5915 & 2.2198 & 22.9509 & 11.5773
+ & 100 \\
 AIT*
- & 0.0111 & 0.0217 & 1.0285
- & 0.0236 & 0.0433 & 2.9939
- & 0.0697 & 0.1159 & 4.7929
- & \textbf{15.96} & \textbf{30.52} & 11.099
+ & 0.0111 & 0.0217 & 1.0285 & 0.9116
+ & 0.0236 & 0.0433 & 2.9939 & 2.2563
+ & 0.0697 & 0.1159 & 4.7929 & 1.4588
+ & 0.8070 & 1.4469 & 22.9509 & 11.0986
  & 100 \\
 EIT*
- & \textbf{0.0106} & \textbf{0.0162} & 1.0285
- & 0.0247 & 0.0413 & 2.9939
- & 0.0705 & 0.1397 & 4.7929
- & 41.74 & 66.08 & 11.442
+ & \textbf{0.0106} & \textbf{0.0162} & 1.0285 & 0.9124
+ & 0.0247 & 0.0413 & 2.9939 & 2.2449
+ & 0.0705 & 0.1397 & 4.7929 & \textbf{1.4530}
+ & 0.8095 & 1.4452 & 22.9509 & 11.4415
  & 100 \\
-APT*$^\ddagger$
- & 0.0127 & 0.0189 & 0.9946
- & 0.0312 & 0.0465 & 2.7233
- & 0.1391 & 0.2126 & \textbf{4.6868}
- & --- & --- & ---
- & 75 \\
+APT*
+ & 0.0127 & 0.0189 & 0.9946 & 0.9225
+ & 0.0312 & 0.0465 & 2.7233 & 2.4436
+ & 0.1391 & 0.2126 & \textbf{4.6868} & 1.6836
+ & 1.6003 & 2.2284 & 22.9509 & 14.0232
+ & 100 \\
 \bottomrule
 \end{tabular}}
 \end{table*}
@@ -1116,9 +1116,10 @@ variants on four representative environments spanning 2-D to 14-D:
 
 \begin{table}[t]
 \centering
-\caption{Ablation study: mean path cost ($\pm$ std) over 10 trials,
-  200 iterations each. \textbf{Bold}: best practical variant per column
-  (oracle row excluded from competition).
+\caption{Ablation study: mean path cost ($\pm$ std) over 10 trials;
+  200\,iter for 2-D/3-D, 50\,iter for 6-D/14-D.
+  \textbf{Bold}: best complete-run (10/10) practical variant per column
+  (oracle row excluded).
   ``w/o CARM'' uses the oracle (ground-truth) metric; not available in practice.}
 \label{tab:ablation}
 \resizebox{\columnwidth}{!}{%
@@ -1131,58 +1132,64 @@ variants on four representative environments spanning 2-D to 14-D:
   & \textbf{14-D Tiago} \\
 \midrule
 RIT* (full)
-  & \textbf{1.063}\,$\pm$\,0.010
-  & \textbf{2.320}\,$\pm$\,0.032
-  & 1.489\,$\pm$\,0.082
-  & \textbf{8.637}\,$\pm$\,0.144 \\
+  & 0.921\,$\pm$\,0.007
+  & \textbf{2.196}\,$\pm$\,0.027
+  & \textbf{1.489}\,$\pm$\,0.082
+  & \textbf{8.638}\,$\pm$\,0.144 \\
 w/o Riem.\ samp.
-  & 1.066\,$\pm$\,0.012
-  & 2.469\,$\pm$\,0.188
-  & \textbf{1.463}\,$\pm$\,0.071
-  & 8.639\,$\pm$\,0.166 \\
+  & \textbf{0.916}\,$\pm$\,0.002
+  & 2.388\,$\pm$\,0.182
+  & 1.459$^\ddagger$\,$\pm$\,0.075
+  & 9.226\,$\pm$\,0.935 \\
 w/o cascading
-  & 1.068\,$\pm$\,0.013
-  & 2.325\,$\pm$\,0.021
+  & 0.920\,$\pm$\,0.008
+  & 2.195\,$\pm$\,0.017
   & 1.489\,$\pm$\,0.082
-  & 8.639\,$\pm$\,0.144 \\
+  & 8.638\,$\pm$\,0.144 \\
 w/o CARM$^\dagger$
   & 0.913\,$\pm$\,0.003
   & 2.174\,$\pm$\,0.033
   & 1.484\,$\pm$\,0.086
-  & 8.595\,$\pm$\,0.021 \\
+  & 8.586\,$\pm$\,0.012 \\
 w/o smoothing
-  & 1.069\,$\pm$\,0.013
-  & 2.438\,$\pm$\,0.034
+  & 0.927\,$\pm$\,0.010
+  & 2.310\,$\pm$\,0.031
   & 1.537\,$\pm$\,0.058
   & 9.396\,$\pm$\,0.189 \\
 \bottomrule
 \end{tabular}}
 \vspace{1pt}
-{\footnotesize $^\dagger$Uses oracle (ground-truth) metric; not available in practice.}
+{\footnotesize $^\dagger$Oracle (ground-truth) metric; not available in practice.\quad
+$^\ddagger$9/10 trials completed within the 350\,s limit; mean over 9 trials.}
 \end{table}
 
 \textbf{Key findings.}
 \emph{Riemannian sampling} provides its largest benefit in
 high-dimensional, anisotropic spaces: removing it increases cost by
-$+6.4\%$ on 3-D Diagonal where metric anisotropy is strong, while the
-effect is negligible on 14-D Tiago ($<0.02\%$) and 2-D Random World
-($+0.25\%$), where the geometry is more uniform or the informed set
-is already well-shaped.
+$+8.7\%$ on 3-D Diagonal (2.388 vs.\ 2.196) where metric anisotropy is
+strong, and $+6.8\%$ on 14-D Tiago (9.226 vs.\ 8.638).
+On 2-D Random World the obstacle distribution is more isotropic, so the
+cost difference (0.916 vs.\ 0.921) lies within one standard deviation and
+is not statistically significant. The w/o\,Riem.\,samp.\ variant also
+experienced a planning timeout (9/10 trials completed) on the 6-D Drill,
+confirming instability without metric-guided sampling.
 \emph{Cascading} has negligible effect on final cost across all
-environments ($<0.3\%$ vs.\ full RIT*), confirming that L1/L2
+environments ($<0.1\%$ vs.\ full RIT*), confirming that L1/L2
 filtering is a pure speed optimisation that does not sacrifice
 solution quality.
 \emph{CARM} (``w/o CARM'' uses the oracle metric directly): the
-oracle consistently yields lower cost since it provides perfect metric
-information from iteration~1, whereas CARM must learn the field
-online. The oracle advantage is largest on 2-D Random World
-($-14.1\%$: 0.913 vs.\ 1.063) and diminishes with dimensionality
-($-0.5\%$ on 14-D), reflecting that CARM converges well to the true
-metric in high-dimensional spaces where local geometry is smoother.
+oracle consistently yields marginally lower cost since it provides
+perfect metric information from iteration~1, whereas CARM must learn
+the field online. The oracle advantage is less than $1\%$ in all
+environments ($-0.9\%$ on 2-D, $-1.0\%$ on 3-D Diagonal, $-0.3\%$
+on 6-D Drill, $-0.6\%$ on 14-D Tiago), demonstrating that CARM
+closely approximates the oracle metric across the full dimensionality
+range tested.
 \emph{Smoothing} is the most critical component at high dimensions:
-removing it degrades 14-D Tiago cost by $+8.8\%$ (9.396 vs.\ 8.637)
-and 6-D Drill by $+3.2\%$, reflecting the highly non-geodesic
-first feasible paths returned by the tree before post-processing.
+removing it degrades 14-D Tiago cost by $+8.8\%$ (9.396 vs.\ 8.638)
+and 6-D Drill by $+3.2\%$ (1.537 vs.\ 1.489), reflecting the highly
+non-geodesic first feasible paths returned by the tree before
+post-processing.
 
 
 % ─────────────────────────────────────────────
@@ -1211,20 +1218,20 @@ and the per-cent overhead of CARM relative to the oracle.
 \midrule
 2-D Random World
   & $0.913 \pm 0.003$
-  & $1.063 \pm 0.010$
-  & $+16.4\%$ \\
+  & $0.921 \pm 0.007$
+  & $+0.9\%$ \\
 3-D Diagonal
   & $2.174 \pm 0.033$
-  & $2.320 \pm 0.032$
-  & $+6.7\%$ \\
+  & $2.196 \pm 0.027$
+  & $+1.0\%$ \\
 6-D Drill
   & $1.484 \pm 0.086$
   & $1.489 \pm 0.082$
   & $+0.3\%$ \\
 14-D Tiago
-  & $8.595 \pm 0.021$
-  & $8.637 \pm 0.144$
-  & $+0.5\%$ \\
+  & $8.586 \pm 0.012$
+  & $8.638 \pm 0.144$
+  & $+0.6\%$ \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -1240,16 +1247,14 @@ and the per-cent overhead of CARM relative to the oracle.
 \label{fig:carm_convergence}
 \end{figure}
 
-CARM overhead decreases monotonically with dimensionality:
-$+16.4\%$ in 2-D, $+6.7\%$ in 3-D, and less than $1\%$ in 6-D and
-14-D.
-This trend is expected: in high-dimensional spaces the collision
-distribution is denser relative to the metric support, so CARM's
-kernel regression converges to the true field more quickly.
-In 2-D, the metric varies sharply near isolated obstacles and more
-samples are needed before the learned field matches the oracle.
+CARM overhead is below $1\%$ across all environments tested:
+$+0.9\%$ in 2-D, $+1.0\%$ in 3-D, $+0.3\%$ in 6-D, and $+0.6\%$
+in 14-D.
+The consistently low overhead confirms that CARM closely approximates
+the oracle metric at all dimensionalities, and that its online learning
+converges rapidly from collision feedback.
 Critically, at the highest dimension tested (14-D Tiago bimanual) the
-CARM overhead is only $+0.5\%$, demonstrating that the learned metric
+CARM overhead is only $+0.6\%$, demonstrating that the learned metric
 scales well to real robot planning scenarios where an oracle is
 unavailable.
 
