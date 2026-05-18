@@ -1,0 +1,945 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>RIT* — Supplementary Material</title>
+  <style>
+    /* ── Reset & base ─────────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html { scroll-behavior: smooth; }
+    body {
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      background: #f5f6f8;
+      color: #1a1a2e;
+      line-height: 1.7;
+    }
+
+    /* ── Header ───────────────────────────────────────────────── */
+    header {
+      background: linear-gradient(135deg, #0f3460 0%, #16213e 60%, #1a1a2e 100%);
+      color: #fff;
+      padding: 56px 32px 48px;
+      text-align: center;
+    }
+    header .venue {
+      display: inline-block;
+      background: #e94560;
+      color: #fff;
+      font-size: 0.78rem;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      padding: 4px 14px;
+      border-radius: 20px;
+      margin-bottom: 20px;
+    }
+    header h1 {
+      font-size: clamp(1.6rem, 3.5vw, 2.6rem);
+      font-weight: 800;
+      letter-spacing: -0.02em;
+      margin-bottom: 14px;
+      line-height: 1.2;
+    }
+    header h1 span { color: #ffffff; }
+    header .subtitle {
+      font-size: 1.05rem;
+      color: #b0bec5;
+      max-width: 680px;
+      margin: 0 auto 28px;
+    }
+    nav {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 10px;
+      margin-top: 10px;
+    }
+    nav a {
+      color: #fff;
+      background: rgba(255,255,255,0.12);
+      border: 1px solid rgba(255,255,255,0.25);
+      padding: 6px 18px;
+      border-radius: 20px;
+      text-decoration: none;
+      font-size: 0.88rem;
+      transition: background 0.2s;
+    }
+    nav a:hover { background: rgba(233,69,96,0.55); border-color: #e94560; }
+
+    /* ── Layout ───────────────────────────────────────────────── */
+    main { max-width: 1200px; margin: 0 auto; padding: 40px 24px 80px; }
+    section { margin-bottom: 72px; }
+    h2 {
+      font-size: 1.55rem;
+      font-weight: 700;
+      color: #0f3460;
+      border-left: 5px solid #e94560;
+      padding-left: 14px;
+      margin-bottom: 10px;
+    }
+    .section-desc {
+      color: #555;
+      font-size: 0.97rem;
+      margin-bottom: 28px;
+    }
+
+    /* ── Overview cards ───────────────────────────────────────── */
+    .overview-grid {
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+      margin-top: 8px;
+    }
+    .card {
+      background: #fff;
+      border-radius: 14px;
+      padding: 28px 32px;
+      box-shadow: 0 2px 12px rgba(0,0,0,0.07);
+      width: 100%;
+    }
+    .card .icon { font-size: 1.8rem; margin-bottom: 10px; }
+    .card h3 { font-size: 1.05rem; font-weight: 700; color: #0f3460; margin-bottom: 10px; }
+    .card p { font-size: 0.93rem; color: #555; }
+
+    /* ── Environment grid ─────────────────────────────────────── */
+    .env-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+      gap: 28px;
+    }
+    .env-card {
+      background: #fff;
+      border-radius: 14px;
+      overflow: hidden;
+      box-shadow: 0 2px 12px rgba(0,0,0,0.07);
+    }
+    .env-card .env-title {
+      padding: 12px 16px 6px;
+      font-weight: 700;
+      font-size: 0.97rem;
+      color: #0f3460;
+    }
+    .gif-pair {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+    }
+    .gif-pair figure {
+      position: relative;
+      overflow: hidden;
+    }
+    .gif-pair figure img {
+      width: 100%;
+      height: 180px;
+      object-fit: cover;
+      display: block;
+    }
+    .gif-pair figcaption {
+      position: absolute;
+      bottom: 0; left: 0; right: 0;
+      background: rgba(15,52,96,0.75);
+      color: #fff;
+      font-size: 0.72rem;
+      font-weight: 600;
+      text-align: center;
+      padding: 4px 6px;
+      letter-spacing: 0.04em;
+    }
+    .gif-pair figure:first-child { border-right: 2px solid #f5f6f8; }
+
+    /* single full-width gif inside env-card */
+    .gif-single figure { position: relative; overflow: hidden; }
+    .gif-single figure img { width: 100%; height: 220px; object-fit: cover; display: block; }
+    .gif-single figcaption {
+      position: absolute; bottom: 0; left: 0; right: 0;
+      background: rgba(15,52,96,0.75); color: #fff;
+      font-size: 0.72rem; font-weight: 600; text-align: center;
+      padding: 4px 6px; letter-spacing: 0.04em;
+    }
+
+    /* ── Path comparison grid ─────────────────────────────────── */
+    .path-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+      gap: 20px;
+    }
+    .path-card {
+      background: #fff;
+      border-radius: 12px;
+      overflow: hidden;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.07);
+    }
+    .path-card img {
+      width: 100%;
+      display: block;
+    }
+    .path-card .cap {
+      padding: 8px 14px 10px;
+      font-size: 0.82rem;
+      color: #555;
+      font-weight: 600;
+    }
+
+    /* ── Video grid ───────────────────────────────────────────── */
+    .video-section { margin-bottom: 44px; }
+    .video-section h3 {
+      font-size: 1.05rem;
+      font-weight: 700;
+      color: #0f3460;
+      margin-bottom: 14px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .video-section h3 .badge {
+      font-size: 0.7rem;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      padding: 2px 10px;
+      border-radius: 12px;
+    }
+    .badge-sim { background: #e3f2fd; color: #1565c0; }
+    .badge-real { background: #fce4ec; color: #c62828; }
+    .video-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+      gap: 20px;
+    }
+    .video-card {
+      background: #fff;
+      border-radius: 12px;
+      overflow: hidden;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.07);
+    }
+    .video-card video {
+      width: 100%;
+      height: 260px;
+      object-fit: cover;
+      display: block;
+      background: #000;
+    }
+    .video-card .vcap {
+      padding: 10px 14px 12px;
+      font-size: 0.85rem;
+      font-weight: 600;
+      color: #333;
+    }
+    .video-card .vcap small {
+      display: block;
+      font-weight: 400;
+      color: #777;
+      font-size: 0.8rem;
+      margin-top: 2px;
+    }
+
+    /* ── Footer ───────────────────────────────────────────────── */
+    footer {
+      background: #16213e;
+      color: #90a4ae;
+      text-align: center;
+      padding: 28px 20px;
+      font-size: 0.85rem;
+    }
+    footer strong { color: #cfd8dc; }
+
+    /* ── Action buttons ──────────────────────────────────────── */
+    .action-btns {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 12px;
+      margin-bottom: 22px;
+    }
+    .action-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      padding: 9px 22px;
+      border-radius: 24px;
+      font-size: 0.9rem;
+      font-weight: 700;
+      cursor: pointer;
+      border: none;
+      text-decoration: none;
+      transition: transform 0.15s, box-shadow 0.15s;
+    }
+    .action-btn:hover { transform: translateY(-2px); box-shadow: 0 6px 18px rgba(0,0,0,0.25); }
+    .btn-reproduce { background: #e94560; color: #fff; }
+    .btn-github    { background: rgba(255,255,255,0.15); color: #fff; border: 1px solid rgba(255,255,255,0.35); }
+    .btn-preprint  { background: rgba(255,255,255,0.15); color: #fff; border: 1px solid rgba(255,255,255,0.35); }
+
+    /* ── Modal ───────────────────────────────────────────────── */
+    .modal-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.6);
+      z-index: 1000;
+      justify-content: center;
+      align-items: flex-start;
+      padding: 40px 16px;
+      overflow-y: auto;
+    }
+    .modal-overlay.open { display: flex; }
+    .modal-box {
+      background: #fff;
+      border-radius: 16px;
+      width: 100%;
+      max-width: 780px;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+      overflow: hidden;
+      position: relative;
+    }
+    .modal-header {
+      background: #0f3460;
+      color: #fff;
+      padding: 18px 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .modal-header h2 { font-size: 1.1rem; font-weight: 700; border: none; padding: 0; margin: 0; color: #fff; }
+    .modal-close {
+      background: none;
+      border: none;
+      color: #fff;
+      font-size: 1.5rem;
+      cursor: pointer;
+      line-height: 1;
+      padding: 0 4px;
+    }
+    .modal-body { padding: 28px 32px; }
+    .modal-coming-soon {
+      text-align: center;
+      padding: 48px 24px;
+    }
+    .modal-coming-soon .cs-icon { font-size: 3rem; margin-bottom: 14px; }
+    .modal-coming-soon h3 { font-size: 1.3rem; font-weight: 700; color: #0f3460; margin-bottom: 10px; }
+    .modal-coming-soon p  { color: #666; font-size: 0.97rem; }
+
+    /* ── README markdown styles ──────────────────────────────── */
+    .md-content h1 { font-size: 1.5rem; color: #0f3460; margin: 0 0 12px; border-bottom: 2px solid #e94560; padding-bottom: 8px; }
+    .md-content h2 { font-size: 1.15rem; color: #0f3460; margin: 24px 0 8px; }
+    .md-content h3 { font-size: 1rem; color: #1a1a2e; margin: 18px 0 6px; }
+    .md-content p  { color: #444; margin-bottom: 12px; line-height: 1.7; }
+    .md-content ul, .md-content ol { padding-left: 22px; margin-bottom: 12px; color: #444; }
+    .md-content li { margin-bottom: 4px; }
+    .md-content code { background: #f0f2f5; padding: 2px 6px; border-radius: 4px; font-size: 0.88em; color: #c7254e; }
+    .md-content pre { background: #1a1a2e; color: #cfd8dc; padding: 16px 20px; border-radius: 10px; overflow-x: auto; margin-bottom: 16px; }
+    .md-content pre code { background: none; color: inherit; padding: 0; }
+    .md-content blockquote { border-left: 4px solid #e94560; padding-left: 14px; color: #666; margin: 12px 0; font-style: italic; }
+    .md-content table { width: 100%; border-collapse: collapse; margin-bottom: 16px; font-size: 0.9rem; }
+    .md-content th { background: #0f3460; color: #fff; padding: 8px 12px; text-align: left; }
+    .md-content td { padding: 7px 12px; border-bottom: 1px solid #e8eaf0; }
+    .md-content tr:nth-child(even) td { background: #f5f6f8; }
+    .md-content hr { border: none; border-top: 1px solid #e0e0e0; margin: 20px 0; }
+
+    /* ── Responsive ───────────────────────────────────────────── */
+    @media (max-width: 520px) {
+      .gif-pair { grid-template-columns: 1fr; }
+      .gif-pair figure:first-child { border-right: none; border-bottom: 2px solid #f5f6f8; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- ══════════════════════════════════════════════════════════════ -->
+<!--  HEADER                                                        -->
+<!-- ══════════════════════════════════════════════════════════════ -->
+<header>
+  <div class="venue">IEEE RA-L &nbsp;·&nbsp; Supplementary Material</div>
+  <h1>RIT*: Asymptotically Optimal Motion Planning<br>with <span>Riemannian Informed Sampling</span></h1>
+  <p class="subtitle">
+    RIT* extends the BIT* framework with a Riemannian metric field that encodes
+    obstacle proximity, enabling anisotropic informed-set sampling, L1/L2/L3 cascading
+    edge filters, and optional collision-adaptive metric refinement (CARM).
+  </p>
+  <div class="action-btns">
+    <button class="action-btn btn-reproduce" onclick="openReadme()">&#128196; Reproduce Results</button>
+    <button class="action-btn btn-github"    onclick="openComingSoon('GitHub')">&#128025; GitHub</button>
+    <button class="action-btn btn-preprint"  onclick="openComingSoon('Preprint')">&#128209; Preprint</button>
+  </div>
+  <nav>
+    <a href="#overview">Overview</a>
+    <a href="#demos-2d">2-D Demos</a>
+    <a href="#paths">Path Comparisons</a>
+    <a href="#robot-real">Real Robot</a>
+    <a href="#robot-sim">Simulation</a>
+    <a href="#method-details">Method Details</a>
+  </nav>
+</header>
+
+<main>
+
+<!-- ══════════════════════════════════════════════════════════════ -->
+<!--  OVERVIEW                                                      -->
+<!-- ══════════════════════════════════════════════════════════════ -->
+<section id="overview">
+  <h2>Algorithm Overview</h2>
+  <p class="section-desc">
+    RIT* extends BIT* by replacing Euclidean geometry with a smooth Riemannian metric field that encodes
+    obstacle proximity and task-relevant cost structure. The informed set, nearest-neighbour search, and
+    edge cost are all computed under this metric, so sampling and graph construction naturally align with
+    the true cost landscape. A three-level cascading edge filter (L1/L2/L3) reduces integration work by
+    roughly 6&times;, and CARM learns the metric on-the-fly from collision feedback when no prior cost model is available.
+  </p>
+</section>
+
+<!-- ══════════════════════════════════════════════════════════════ -->
+<!--  2-D DEMOS                                                     -->
+<!-- ══════════════════════════════════════════════════════════════ -->
+<section id="demos-2d">
+  <h2>2-D Planning Demos</h2>
+  <p class="section-desc">
+    Each pair shows the search tree growth for <strong>RIT* (base metric)</strong>
+    on the left and <strong>RIT* + CARM</strong> on the right. CARM learns
+    the obstacle structure on-the-fly and guides sampling accordingly.
+  </p>
+  <div class="env-grid">
+
+    <div class="env-card">
+      <div class="env-title">Random World</div>
+      <div class="gif-pair">
+        <figure>
+          <img src="assets/gifs/config_2d_random_world_tree_growth.gif" alt="Random World — RIT*" loading="lazy" />
+          <figcaption>RIT* (base metric)</figcaption>
+        </figure>
+        <figure>
+          <img src="assets/gifs/config_2d_random_world_tree_growth_carm.gif" alt="Random World — CARM" loading="lazy" />
+          <figcaption>RIT* + CARM</figcaption>
+        </figure>
+      </div>
+    </div>
+
+    <div class="env-card">
+      <div class="env-title">Narrow Passage</div>
+      <div class="gif-pair">
+        <figure>
+          <img src="assets/gifs/config_2d_narrow_tree_growth.gif" alt="Narrow — RIT*" loading="lazy" />
+          <figcaption>RIT* (base metric)</figcaption>
+        </figure>
+        <figure>
+          <img src="assets/gifs/config_2d_narrow_tree_growth_carm.gif" alt="Narrow — CARM" loading="lazy" />
+          <figcaption>RIT* + CARM</figcaption>
+        </figure>
+      </div>
+    </div>
+
+    <div class="env-card">
+      <div class="env-title">Diagonal Anisotropic</div>
+      <div class="gif-pair">
+        <figure>
+          <img src="assets/gifs/config_2d_diagonal_tree_growth.gif" alt="Diagonal — RIT*" loading="lazy" />
+          <figcaption>RIT* (base metric)</figcaption>
+        </figure>
+        <figure>
+          <img src="assets/gifs/config_2d_diagonal_tree_growth_carm.gif" alt="Diagonal — CARM" loading="lazy" />
+          <figcaption>RIT* + CARM</figcaption>
+        </figure>
+      </div>
+    </div>
+
+  </div>
+
+  <h3 style="font-size:1.05rem;font-weight:700;color:#0f3460;margin:36px 0 16px;border-left:4px solid #e94560;padding-left:12px;">3-D Environments</h3>
+  <div class="env-grid">
+
+    <div class="env-card">
+      <div class="env-title">3-D Corridor</div>
+      <div class="gif-single">
+        <figure>
+          <img src="assets/gifs/config_3d_corridor_tree_growth.gif" alt="3D Corridor — RIT*" loading="lazy" />
+          <figcaption>RIT* tree growth</figcaption>
+        </figure>
+      </div>
+    </div>
+
+    <div class="env-card">
+      <div class="env-title">3-D Gauntlet</div>
+      <div class="gif-single">
+        <figure>
+          <img src="assets/gifs/config_3d_gauntlet_tree_growth.gif" alt="3D Gauntlet — RIT*" loading="lazy" />
+          <figcaption>RIT* tree growth</figcaption>
+        </figure>
+      </div>
+    </div>
+
+    <div class="env-card">
+      <div class="env-title">3-D Diagonal</div>
+      <div class="gif-single">
+        <figure>
+          <img src="assets/gifs/config_3d_diagonal_tree_growth.gif" alt="3D Diagonal — RIT*" loading="lazy" />
+          <figcaption>RIT* tree growth</figcaption>
+        </figure>
+      </div>
+    </div>
+
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════════════════════════════ -->
+<!--  PATH COMPARISONS                                              -->
+<!-- ══════════════════════════════════════════════════════════════ -->
+<section id="paths">
+  <h2>Path Quality Comparisons</h2>
+  <p class="section-desc">
+    Final paths found by all six planners (RIT*, BIT*, Informed RRT*, AIT*,
+    EIT*, APT*) overlaid on each environment. All paths are evaluated under
+    the oracle Riemannian metric for a fair comparison.
+  </p>
+  <div class="path-grid">
+    <div class="path-card">
+      <img src="assets/images/path_comparison_2d_random_world.png" alt="Path comparison — Random World" loading="lazy" />
+      <div class="cap">Random World</div>
+    </div>
+    <div class="path-card">
+      <img src="assets/images/path_comparison_2d_maze.png" alt="Path comparison — Maze" loading="lazy" />
+      <div class="cap">Maze</div>
+    </div>
+    <div class="path-card">
+      <img src="assets/images/path_comparison_2d_narrow.png" alt="Path comparison — Narrow Passage" loading="lazy" />
+      <div class="cap">Narrow Passage</div>
+    </div>
+    <div class="path-card">
+      <img src="assets/images/path_comparison_2d_bug_trap.png" alt="Path comparison — Bug Trap" loading="lazy" />
+      <div class="cap">Bug Trap</div>
+    </div>
+    <div class="path-card">
+      <img src="assets/images/path_comparison_2d_obstacle.png" alt="Path comparison — Obstacle" loading="lazy" />
+      <div class="cap">Obstacle Field</div>
+    </div>
+    <div class="path-card">
+      <img src="assets/images/path_comparison_2d_diagonal.png" alt="Path comparison — Diagonal" loading="lazy" />
+      <div class="cap">Diagonal Anisotropic (2-D)</div>
+    </div>
+    <div class="path-card">
+      <img src="assets/images/path_comparison_3d_diagonal.png" alt="Path comparison — 3D Diagonal" loading="lazy" />
+      <div class="cap">Diagonal Anisotropic (3-D)</div>
+    </div>
+    <div class="path-card">
+      <img src="assets/images/path_comparison_3d_corridor.png" alt="Path comparison — 3D Corridor" loading="lazy" />
+      <div class="cap">Corridor (3-D)</div>
+    </div>
+    <div class="path-card">
+      <img src="assets/images/path_comparison_3d_spheres.png" alt="Path comparison — 3D Spheres" loading="lazy" />
+      <div class="cap">Spheres (3-D)</div>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════════════════════════════ -->
+<!--  REAL ROBOT DEMONSTRATIONS                                     -->
+<!-- ══════════════════════════════════════════════════════════════ -->
+<section id="robot-real">
+  <h2>Real Robot Demonstrations
+    <span class="badge badge-real" style="font-size:0.65rem;vertical-align:middle;margin-left:8px;">Real Robot</span>
+  </h2>
+  <p class="section-desc">
+    Plans generated in simulation were transferred without modification to a
+    physical UR10e manipulator, demonstrating reliable sim-to-real transfer.
+    All paths were planned in 6-D joint space using a PyBullet collision checker
+    and executed open-loop on hardware.
+  </p>
+  <div class="video-grid">
+    <div class="video-card">
+      <video controls autoplay muted loop playsinline>
+        <source src="assets/videos/real-shelf1.mp4" type="video/mp4" />
+      </video>
+      <div class="vcap">
+        Shelf Grasp — Real UR10e (Scene 1)
+        <small>Sim-to-real transfer: plan from simulation executed directly on hardware</small>
+      </div>
+    </div>
+    <div class="video-card">
+      <video controls autoplay muted loop playsinline>
+        <source src="assets/videos/real-shelf2.mp4" type="video/mp4" />
+      </video>
+      <div class="vcap">
+        Shelf Grasp — Real UR10e (Scene 2)
+        <small>Second shelf configuration executed on the physical robot</small>
+      </div>
+    </div>
+    <div class="video-card">
+      <video controls autoplay muted loop playsinline>
+        <source src="assets/videos/real_wall.mp4" type="video/mp4" />
+      </video>
+      <div class="vcap">
+        Wall Carry — Real UR10e
+        <small>Over-wall pick-and-place on the physical robot</small>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════════════════════════════ -->
+<!--  MANIPULATION SIMULATION DEMOS                                 -->
+<!-- ══════════════════════════════════════════════════════════════ -->
+<section id="robot-sim">
+  <h2>Manipulation Simulation Demos
+    <span class="badge badge-sim" style="font-size:0.65rem;vertical-align:middle;margin-left:8px;">Simulation</span>
+  </h2>
+  <p class="section-desc">
+    Simulation demonstrations of RIT* planning for 6-D and 14-D manipulator tasks
+    in PyBullet. Environments include shelf grasping, over-wall pick-and-place, and
+    bimanual planning with the PAL Tiago Pro in 14-D joint space.
+  </p>
+  <div class="video-grid">
+    <div class="video-card">
+      <video controls autoplay muted loop playsinline>
+        <source src="assets/videos/sim_drill.mp4" type="video/mp4" />
+      </video>
+      <div class="vcap">
+        Pick &amp; Place — Drill
+        <small>UR10e reaches over a wall obstacle to retrieve a drill</small>
+      </div>
+    </div>
+    <div class="video-card">
+      <video controls autoplay muted loop playsinline>
+        <source src="assets/videos/sim_shelf1.mp4" type="video/mp4" />
+      </video>
+      <div class="vcap">
+        Shelf Grasp — Scene 1
+        <small>Navigating between shelf compartments</small>
+      </div>
+    </div>
+    <div class="video-card">
+      <video controls autoplay muted loop playsinline>
+        <source src="assets/videos/sim_shelf2.mp4" type="video/mp4" />
+      </video>
+      <div class="vcap">
+        Shelf Grasp — Scene 2
+        <small>Placing an object onto a cluttered shelf</small>
+      </div>
+    </div>
+    <div class="video-card">
+      <video controls autoplay muted loop playsinline>
+        <source src="assets/videos/sim_wall1.mp4" type="video/mp4" />
+      </video>
+      <div class="vcap">
+        Wall Carry — Phase 1
+        <small>Picking up an object from one side of a dividing wall</small>
+      </div>
+    </div>
+    <div class="video-card">
+      <video controls autoplay muted loop playsinline>
+        <source src="assets/videos/sim_wall2.mp4" type="video/mp4" />
+      </video>
+      <div class="vcap">
+        Wall Carry — Phase 2
+        <small>Carrying and placing on the opposite side of the wall</small>
+      </div>
+    </div>
+    <div class="video-card">
+      <video controls autoplay muted loop playsinline>
+        <source src="assets/videos/tiago_pro_14D.mp4" type="video/mp4" />
+      </video>
+      <div class="vcap">
+        Tiago Pro — 14-D Bimanual Planning
+        <small>PAL Tiago Pro dual-arm pre-grasp planned in 14-D joint space</small>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════════════════════════════ -->
+<!--  METHOD DETAILS                                                -->
+<!-- ══════════════════════════════════════════════════════════════ -->
+<section id="method-details">
+  <h2>Method Details</h2>
+  <div class="overview-grid">
+    <div class="card">
+      <h3>Riemannian Metric Field &amp; Informed Sampling</h3>
+      <p>
+        Standard planners such as BIT* define their informed set and
+        nearest-neighbour search using Euclidean distance, which ignores the
+        true cost structure when the environment is anisotropic. RIT* instead
+        equips the configuration space with a smooth metric tensor field
+        <em>G(x)</em> that stretches space near obstacles: moving through a
+        high-cost region counts as farther, so the planner naturally finds
+        paths that curve away from obstacles.
+      </p>
+      <p style="margin-top:10px;">
+        Once a first solution is found, subsequent samples are drawn from a
+        <em>Riemannian informed set</em> — the region of configurations that
+        could still improve the current path under the Riemannian cost. This
+        set is tighter than its Euclidean counterpart because it is aligned
+        with the actual cost landscape. To sample it efficiently, the metric
+        is averaged along the start-to-goal segment and a whitening transform
+        maps the informed set to a standard ellipsoid, where direct sampling
+        applies. The result is that each new sample is more likely to be
+        useful, accelerating convergence.
+      </p>
+    </div>
+    <div class="card">
+      <h3>Cascading Edge Evaluation (L1 / L2 / L3)</h3>
+      <p>
+        Computing the exact Riemannian cost of an edge requires numerical
+        integration along the edge — multiple metric evaluations per candidate.
+        Most candidate edges, however, cannot possibly improve the current
+        solution and are a waste of computation. RIT* screens edges with a
+        three-level cascade of increasing accuracy, discarding unpromising
+        ones as early as possible.
+      </p>
+      <p style="margin-top:10px;">
+        <strong>L1 (midpoint check):</strong> a single metric lookup at the
+        edge midpoint gives a cheap lower-bound estimate. This alone rejects
+        78–85% of all candidates across 2-D to 14-D benchmarks.
+        <strong>L2 (Simpson estimate):</strong> surviving edges are
+        re-evaluated with three-point Simpson's rule, capturing metric
+        variation along the edge; roughly 75% of remaining candidates are
+        rejected here. <strong>L3 (full quadrature + collision check):</strong>
+        only the ~5% of edges that pass both levels receive full 10-point
+        Gauss-Legendre integration followed by the collision check. The
+        cascade reduces the average number of metric evaluations per edge
+        from 10 down to approximately 1.6.
+      </p>
+    </div>
+    <div class="card">
+      <h3>CARM — Collision-Adaptive Metric Refinement</h3>
+      <p>
+        In practice the true cost model is rarely known in advance. CARM
+        removes this requirement by <em>learning</em> the metric on-the-fly
+        from the collision feedback that the planner accumulates naturally
+        during planning. Every time an edge is rejected by the collision
+        checker, the contact point is recorded. At regular intervals, a
+        kernel density estimator over these collision points produces a
+        smooth obstacle-proximity field, which is applied as a conformal
+        scaling of the base metric.
+      </p>
+      <p style="margin-top:10px;">
+        The effect is intuitive: regions where many collisions occur become
+        "expensive" in the metric, steering the informed set and the
+        nearest-neighbour search away from those regions without any prior
+        knowledge of the obstacle geometry. CARM requires no pre-built
+        obstacle map — it defaults to Euclidean and learns from scratch.
+        The overhead is less than 1% of total planning time, and the
+        solution quality matches a planner that has access to the full
+        obstacle geometry.
+      </p>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<footer>
+  <strong>RIT* — Riemannian Informed Trees</strong> &nbsp;·&nbsp;
+  IEEE Robotics and Automation Letters &nbsp;·&nbsp;
+  Supplementary Material
+</footer>
+
+<!-- ── Modal ──────────────────────────────────────────────────── -->
+<div class="modal-overlay" id="modal" onclick="closeModalOnBg(event)">
+  <div class="modal-box">
+    <div class="modal-header">
+      <h2 id="modal-title"></h2>
+      <button class="modal-close" onclick="closeModal()">&times;</button>
+    </div>
+    <div class="modal-body" id="modal-body"></div>
+  </div>
+</div>
+
+<!-- README source (plain text, read by JS) -->
+<pre id="readme-src" style="display:none">
+# RIT* — Riemannian Informed Trees
+
+Supplementary code for the IEEE RA-L submission:
+**"RIT*: Asymptotically Optimal Motion Planning with Riemannian Informed Sampling"**
+
+RIT* extends BIT* with a Riemannian metric field that encodes obstacle proximity, yielding shorter, smoother paths via anisotropic informed-set sampling, L1/L2/L3 cascading edge filters, and optional collision-adaptive metric (CARM) refinement.
+
+---
+
+## Requirements
+
+**Python &gt;= 3.10** with the following packages:
+
+```
+numpy scipy matplotlib pyyaml numba tqdm
+```
+
+For 6-D and 14-D environments (UR10 and Tiago):
+
+```
+pybullet
+```
+
+Install all at once:
+
+```bash
+pip install numpy scipy matplotlib pyyaml numba tqdm pybullet
+```
+
+---
+
+## Quick Start
+
+### Run the paper benchmark (Table II)
+
+```bash
+python run_from_config.py
+```
+
+This reads `config/run_config.yaml` and runs all six planners
+(RIT*, BIT*, Informed RRT*, AIT*, EIT*, APT*) on the four paper environments.
+Results and plots are written to `results/` and `visualization/`.
+
+### Run the ablation study (Table III)
+
+```bash
+python run_ablation.py
+```
+
+Runs five RIT* variants (full, w/o Riemannian sampling, w/o cascading,
+w/o CARM, w/o smoothing) x 4 environments x 10 trials.
+Outputs:
+
+- `results/ablation.csv` — raw per-trial data
+- `results/ablation_summary.csv` — mean +/- std per variant/environment
+- `results/ablation_table.tex` — paste-ready LaTeX table
+
+### Run a single environment interactively
+
+```bash
+python run_2d_obstacle_demo.py
+python run_manipulator.py
+```
+
+---
+
+## Reproducing Paper Results
+
+### Table II — Benchmark comparison
+
+1. Set `config/run_config.yaml`:
+   - environments: 2D Random World, 3D Diagonal, UR10_pick_place_drill, Tiago 14D simple
+   - n_trials: 10, max_iterations: 200, batch_size: 100
+2. Run: `python run_from_config.py`
+
+&gt; **Note:** The 14-D Tiago environment requires PyBullet and takes ~5 minutes per trial. Expect the full benchmark to take several hours.
+
+### Table III — Ablation study
+
+Run: `python run_ablation.py`
+
+The script uses the same four environments and seeds as the paper.
+
+---
+
+## Key Planner Parameters
+
+| Parameter | Description | Default |
+|---|---|---|
+| max_iterations | Number of BIT*-style batches | 200 |
+| batch_size | Samples added per batch | 100 |
+| adaptive_metric | Enable CARM | True |
+| geodesic_tier | diagonal or full | diagonal |
+| random_seed | RNG seed | 42 |
+
+```python
+from rit_star.rit_star import RITStar
+from rit_star.environments import env_2d_random_world
+
+coll, _, metric, x_start, x_goal, bounds = env_2d_random_world()
+planner = RITStar(
+    x_start=x_start, x_goal=x_goal,
+    c_space_bounds=bounds,
+    collision_checker=coll,
+    metric=metric,
+    max_iterations=200,
+    batch_size=100,
+    random_seed=42,
+)
+path, stats = planner.plan()
+```
+</pre>
+
+<script>
+function openModal(title, bodyHTML) {
+  document.getElementById('modal-title').textContent = title;
+  document.getElementById('modal-body').innerHTML = bodyHTML;
+  document.getElementById('modal').classList.add('open');
+  document.body.style.overflow = 'hidden';
+}
+
+function closeModal() {
+  document.getElementById('modal').classList.remove('open');
+  document.body.style.overflow = '';
+}
+
+function closeModalOnBg(e) {
+  if (e.target === document.getElementById('modal')) closeModal();
+}
+
+function openComingSoon(name) {
+  var html = '<div class="modal-coming-soon">'
+    + '<div class="cs-icon">&#128336;</div>'
+    + '<h3>Coming Soon</h3>'
+    + '<p>The <strong>' + name + '</strong> link will be available upon paper acceptance.</p>'
+    + '</div>';
+  openModal(name, html);
+}
+
+function escapeHtml(s) {
+  return s.replace(/&amp;/g,'&').replace(/&gt;/g,'>').replace(/&lt;/g,'<')
+          .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+function simpleMarkdown(md) {
+  // fenced code blocks (preserve content, escape HTML inside)
+  md = md.replace(/```[\w]*\n([\s\S]*?)```/g, function(_, code) {
+    var safe = code.trimEnd().replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    return '<pre><code>' + safe + '</code></pre>';
+  });
+  // blockquotes
+  md = md.replace(/^&gt; (.+)$/gm, '<blockquote>$1</blockquote>');
+  md = md.replace(/^> (.+)$/gm, '<blockquote>$1</blockquote>');
+  // headings
+  md = md.replace(/^### (.+)$/gm, '<h3>$1</h3>');
+  md = md.replace(/^## (.+)$/gm,  '<h2>$1</h2>');
+  md = md.replace(/^# (.+)$/gm,   '<h1>$1</h1>');
+  // hr
+  md = md.replace(/^---$/gm, '<hr>');
+  // tables
+  md = md.replace(/^(\|.+\|)\n\|[-| :]+\|\n((\|.+\|\n?)*)/gm, function(m) {
+    var lines = m.trim().split('\n').filter(function(r){ return !/^\|[-| :]+\|$/.test(r); });
+    var th = lines[0].split('|').slice(1,-1).map(function(c){ return '<th>'+c.trim()+'</th>'; }).join('');
+    var trs = lines.slice(1).map(function(r){
+      var tds = r.split('|').slice(1,-1).map(function(c){ return '<td>'+c.trim()+'</td>'; }).join('');
+      return '<tr>'+tds+'</tr>';
+    }).join('');
+    return '<table><thead><tr>'+th+'</tr></thead><tbody>'+trs+'</tbody></table>';
+  });
+  // bold
+  md = md.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+  // inline code
+  md = md.replace(/`([^`]+)`/g, '<code>$1</code>');
+  // unordered lists
+  md = md.replace(/(^- .+(\n|$))+/gm, function(m) {
+    var items = m.trim().split('\n').map(function(l){ return '<li>'+l.replace(/^- /,'')+'</li>'; }).join('');
+    return '<ul>'+items+'</ul>';
+  });
+  // numbered lists
+  md = md.replace(/(^\d+\. .+(\n|$))+/gm, function(m) {
+    var items = m.trim().split('\n').map(function(l){ return '<li>'+l.replace(/^\d+\. /,'')+'</li>'; }).join('');
+    return '<ol>'+items+'</ol>';
+  });
+  // paragraphs
+  md = md.replace(/^(?!<[houlibtpr]|\s*$)(.+)$/gm, '<p>$1</p>');
+  return md;
+}
+
+function openReadme() {
+  var raw = document.getElementById('readme-src').textContent;
+  var html = simpleMarkdown(raw);
+  openModal('Reproduce Results', '<div class="md-content">' + html + '</div>');
+}
+
+document.addEventListener('keydown', function(e) {
+  if (e.key === 'Escape') closeModal();
+});
+</script>
+
+</body>
+</html>

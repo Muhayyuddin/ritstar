@@ -35,40 +35,13 @@
 #   environments: [maze, narrow, spheres]
 #     → runs those 3 planners on those 3 specific environments
 #
-#   planners: all
-#   environments: [euclid]
-#     → runs every planner on Euclidean-cost 2D envs (tight BIT* ellipses)
-#
-#   planners: all
-#   environments: [2D, euclid]
-#     → runs every planner on both Riemannian AND Euclidean 2D envs
-#
-#   planners: [RIT, BIT]
-#   environments: [obstacle, obstacle_e]
-#     → same obstacles, compare Riemannian vs Euclidean cost side by side
-#random_world
 # ═══════════════════════════════════════════════════════════════════════
 
-#planners: all
-#environments: [2D] 'Tiago 14D'
-planners:  ['RIT*', 'BIT*', 'Informed RRT*','AIT*','EIT*', 'APT*']
-#environments: ['2D Random World','3D Diagonal', 'UR10_pick_place_drill', 'Tiago 14D simple']
-environments: [ 'Tiago 14D simple']
-
-#planners: ['RIT*', 'RIT*-CARM', 'BIT*', 'Informed RRT*', 'AIT*', 'EIT*', 'APT*']
-#environments:  ['2D Random World','3D Diagonal', 'UR10_pick_place_can','UR10_pick_place_drill']
-#environments:  ['random_world','3D Diagonal']
-#['random_world','dividing_wall', '3D Diagonal','3D Box Field','UR10_pick_shelf','UR10_pick_place_shelf', 'UR10_grasp_can','UR10_pick_place_can','UR10_pick_place_drill']
-#'3D Diagonal','3D Box Field']
-
-#['random_world','dividing_wall']
-#environments:  ['random_world','dividing_wall','2D Diagonal', '2D Obstacle', '2D Narrow', '2D Maze', '2D Bug Trap', '2D Forest', '2D Terrain', '2D Hyper-Dense', '2D Joint Arm']
+# Paper benchmark: all planners on the 4 paper environments (Table II)
+planners: ['RIT*', 'BIT*', 'Informed RRT*', 'AIT*', 'EIT*', 'APT*']
+environments: [2D, 3D]
 
 # Benchmark parameters
-# NOTE: 14D envs (Tiago) need many more iterations than 2D/3D.
-#       500 iterations × batch 200 gives non-inf costs for all planners.
-# Per-trial planning timeout (seconds). If no path is found within this
-# limit the trial is counted as no solution (inf cost) in success rate.
 timeout_seconds: 300
 n_trials: 10
 max_iterations: 200
@@ -92,24 +65,11 @@ save_gif: true
 run_benchmark_plots: false
 generate_benchmark_plots: false
 generate_benchmark_tables: false
-# bench_n_trials, bench_max_iterations, bench_batch_size, bench_base_seed
-# are intentionally omitted — they automatically inherit n_trials,
-# max_iterations, batch_size, and base_seed above so the benchmark
-# re-uses the same run instead of repeating it.
-# Uncomment any line below to override independently:
-#bench_n_trials: 10
-#bench_max_iterations: 150
-#bench_batch_size: 100
 bench_timeout_seconds: 350
-#bench_base_seed: 42
-# Path to save/load raw trial data (pickle).  Delete the file to force a fresh run.
 bench_cache_file: results/benchmark_data.pkl
 
-# ── Monte Carlo comparison ───────────────────────────────────────────
-# run_mc: run the full Monte Carlo comparison pipeline
-#         (generates CSV tables, convergence plots, box plots, etc.)
-# mc parameters below are only used when run_mc is true.
-run_mc: false
+# ── Monte Carlo comparison ───────────────────────────────────────────# run_mc: run the full Monte Carlo comparison pipeline
+#         (generates CSV tables, convergence plots, box plots, etc.)run_mc: false
 mc_n_trials: 10
 mc_max_iterations: 150
 mc_batch_size: 100
@@ -129,7 +89,7 @@ ablation_n_trials: 10
 ablation_max_iterations: 200
 ablation_batch_size: 100
 ablation_base_seed: 42
-ablation_envs: ['2D Random World', '3D Diagonal', 'UR10_pick_place_drill','Tiago 14D simple']
+ablation_envs: ['2D Random World', '3D Diagonal', 'UR10_pick_place_drill', 'Tiago 14D simple']
 
 # ── 6-D PyBullet demos (UR10e + Robotiq scenes, GUI-only) ─────────────
 # Each entry launches the corresponding script as a sub-process. The

@@ -64,7 +64,7 @@ class RiemannianInformedSet:
         self._eis_proposal = EuclideanInformedSet(
             self.x_start, self.x_goal, self.c_best, bounds=bounds)
 
-        # Precompute for fast diagonal membership (Fix 4)
+        # Precompute for fast diagonal membership
         self._metric = geodesic_computer.metric
         self._is_diagonal = isinstance(self._metric, DiagonalAnisotropicMetric)
         if self._is_diagonal:
@@ -98,7 +98,7 @@ class RiemannianInformedSet:
         Notes
         -----
         Implements the membership predicate of Definition 2 (Riemannian
-        informed set).  Uses a cheap Euclidean pre-filter (Fix 3).
+        informed set).  Uses a cheap Euclidean pre-filter for speed.
         """
         # Cheap Euclidean pre-filter: if Euclidean sum > c_best, skip
         d1e = float(np.linalg.norm(x - self.x_start))
@@ -118,7 +118,7 @@ class RiemannianInformedSet:
         N = pts.shape[0]
         mask = np.ones(N, dtype=bool)
 
-        # Stage 1: vectorized Euclidean pre-filter (Fix 3)
+        # Stage 1: vectorized Euclidean pre-filter
         d1e = np.linalg.norm(pts - self.x_start, axis=1)
         d2e = np.linalg.norm(pts - self.x_goal, axis=1)
         euclid_sum = d1e + d2e
@@ -130,7 +130,7 @@ class RiemannianInformedSet:
             return mask
 
         if self._is_diagonal:
-            # Fast vectorized diagonal geodesic (Fix 4)
+            # Fast vectorized diagonal geodesic
             w = self._metric._weights
             diff_s = pts[survivors] - self.x_start
             diff_g = pts[survivors] - self.x_goal
@@ -183,8 +183,8 @@ class RiemannianInformedSet:
 
         Notes
         -----
-        Uses the Euclidean ellipsoid as proposal (Fix 2) with vectorized
-        batch membership testing (Fix 1) and Euclidean pre-filter (Fix 3).
+        Uses the Euclidean ellipsoid as proposal with vectorized
+        batch membership testing and Euclidean pre-filter.
         """
         if rng is None:
             rng = np.random.default_rng()
@@ -202,11 +202,11 @@ class RiemannianInformedSet:
         batch_draw = max(n_samples * base_mult, 200)
 
         for _ in range(max_rounds):
-            # Draw proposals from Euclidean ellipsoid (Fix 2)
+            # Draw proposals from Euclidean ellipsoid
             proposals = self._eis_proposal.sample(batch_draw, rng=rng)
             self._total_proposed += len(proposals)
 
-            # Vectorized membership test (Fix 1 + 3 + 4)
+            # Vectorized membership test
             mask = self.batch_is_member(proposals)
             accepted = proposals[mask]
             self._total_accepted += len(accepted)

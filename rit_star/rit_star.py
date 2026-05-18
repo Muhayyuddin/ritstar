@@ -543,6 +543,46 @@ class RITStar:
         """
         return self._stats
 
+    @property
+    def base_metric(self) -> 'RiemannianMetric':
+        """The underlying base metric, stripping CARM if active.
+
+        Use this to evaluate final path cost consistently regardless of
+        whether CARM is enabled (useful for ablation comparisons).
+        """
+        if self._carm is not None:
+            return self._carm.base
+        return self.metric
+
+    def disable_riemannian_sampling(self) -> None:
+        """Switch to Euclidean (non-whitened) informed-set sampling.
+
+        Disables the anisotropic whitening transformation so that
+        samples are drawn from the standard Euclidean ellipsoid.
+        Isolates the contribution of Riemannian-aware sampling in
+        ablation studies.  Must be called before ``plan()``.
+        """
+        self._use_whitening = False
+        self._whitened_eis = None
+
+    def disable_cascading(self) -> None:
+        """Disable L1/L2 cascading edge-cost filters.
+
+        Forces every candidate edge through the full metric evaluation
+        instead of the cached L1/L2 upper-bound filters.  This is a
+        pure speed optimisation — disabling it should not change the
+        final path cost.  Must be called before ``plan()``.
+        """
+        self._mc._no_cascading = True
+
+    def disable_smoothing(self) -> None:
+        """Disable post-processing path shortcutting.
+
+        Skips the shortcut-smoothing pass after the tree search
+        completes.  Must be called before ``plan()``.
+        """
+        self._shortcut_path = lambda path, n_attempts=0: path
+
     def _fast_heuristic(self, x: np.ndarray) -> float:
         """Admissible Riemannian heuristic to goal via cached metric.
 

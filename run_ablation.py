@@ -61,25 +61,18 @@ DEFAULT_ENVS = [
 ]
 
 
-# ── Variant application (monkey-patches a constructed RITStar) ────────
+# ── Variant application ──────────────────────────────────────────────
 
 def _apply_variant(planner: RITStar, variant: dict) -> None:
     """Apply variant-specific modifications to a freshly-built planner."""
     if not variant['whitening']:
-        # Disable anisotropic whitened-ellipsoid sampling. The planner
-        # falls back to (Euclidean) informed-ellipsoid sampling, so this
-        # isolates the contribution of Riemannian-aware sampling.
-        planner._use_whitening = False
-        planner._whitened_eis = None
+        planner.disable_riemannian_sampling()
 
     if not variant['cascading']:
-        # Force every edge through the full metric evaluation by making
-        # the cached L1/L2 upper bounds always 0 (so they never reject).
-        planner._mc._no_cascading = True
+        planner.disable_cascading()
 
     if not variant['smoothing']:
-        # Skip the post-processing shortcut pass.
-        planner._shortcut_path = lambda path, n_attempts=0: path
+        planner.disable_smoothing()
 
 
 # ── Ablation runner ───────────────────────────────────────────────────
@@ -102,12 +95,11 @@ def _run_one_trial(env_name: str, env_fn, variant: dict,
     path, _ = planner.plan()
     elapsed = time.time() - t0
 
-    # Always evaluate final cost with the BASE metric (strip CARM if active)
-    # so that all variants are on the same cost scale for fair comparison.
-    eval_metric = planner._carm.base if planner._carm is not None else planner.metric
+    # Evaluate final cost with the base metric (stripping CARM if active)
+    # so all variants are compared on the same cost scale.
     if path and len(path) > 1:
         base_cost = sum(
-            riemannian_edge_cost(path[i], path[i + 1], eval_metric)
+            riemannian_edge_cost(path[i], path[i + 1], planner.base_metric)
             for i in range(len(path) - 1)
         )
     else:
