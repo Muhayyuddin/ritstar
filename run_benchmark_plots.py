@@ -125,6 +125,13 @@ def _interpolate_cost_vs_time(trial_stats_list, t_grid):
     Returns (n_trials, len(t_grid)) array.  Uses forward-fill: before
     the first recorded time, cost is inf; after the last, it's held
     constant.
+
+    A cumulative minimum is applied per trial after interpolation so
+    that individual cost curves are strictly non-increasing on the
+    time grid.  Without this, staggered first-solution times across
+    trials cause the median to spike upward when a new (high initial
+    cost) trial joins the finite-cost set — particularly visible in
+    high-dimensional environments with n_trials ≤ 5.
     """
     all_interp = []
     for stats in trial_stats_list:
@@ -134,6 +141,13 @@ def _interpolate_cost_vs_time(trial_stats_list, t_grid):
         times = np.array([s['time_elapsed'] for s in stats])
         costs = np.array([s['c_best'] for s in stats])
         interp = np.interp(t_grid, times, costs, left=np.inf, right=costs[-1])
+        # Enforce monotone non-increasing: once a better solution is
+        # found it should never appear to get worse on the time axis.
+        finite_mask = np.isfinite(interp)
+        if finite_mask.any():
+            # cummin only over finite prefix; keep inf prefix intact
+            first_finite = np.argmax(finite_mask)
+            interp[first_finite:] = np.minimum.accumulate(interp[first_finite:])
         all_interp.append(interp)
     return np.array(all_interp)
 

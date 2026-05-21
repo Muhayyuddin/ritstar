@@ -325,6 +325,7 @@ def load_config(path: str) -> dict:
         'max_iterations': int(cfg.get('max_iterations', 150)),
         'batch_size': int(cfg.get('batch_size', 100)),
         'base_seed': int(cfg.get('base_seed', 42)),
+        'timeout_seconds': int(cfg.get('timeout_seconds', 0)),
         # Output options
         'save_image': bool(cfg.get('save_image', False)),
         'save_gif': bool(cfg.get('save_gif', False)),
@@ -833,6 +834,7 @@ def run(cfg: dict):
     max_iter = cfg['max_iterations']
     batch_size = cfg['batch_size']
     base_seed = cfg['base_seed']
+    timeout_seconds = cfg.get('timeout_seconds', 0)
     save_image = cfg.get('save_image', False)
     save_gif = cfg.get('save_gif', False)
 
@@ -846,10 +848,19 @@ def run(cfg: dict):
     print(f'  Max iters:     {max_iter}')
     print(f'  Batch size:    {batch_size}')
     print(f'  Base seed:     {base_seed}')
+    print(f'  Timeout:       {timeout_seconds}s (0 = unlimited)')
     print(f'  Save images:   {save_image}')
     print(f'  Save GIFs:     {save_gif}')
     print(f'  Total runs:    {total_runs}')
     print('=' * 60)
+
+    import signal as _signal
+
+    class _TimeoutError(Exception):
+        pass
+
+    def _alarm_handler(signum, frame):  # noqa: ARG001
+        raise _TimeoutError()
 
     all_results = {}
     run_count = 0
@@ -879,7 +890,19 @@ def run(cfg: dict):
                 planner = _build_planner(
                     planner_name, xs, xg, bounds, coll, metric,
                     batch_size, max_iter, seed)
-                path, cost = planner.plan()
+                timed_out = False
+                try:
+                    if timeout_seconds > 0:
+                        _signal.signal(_signal.SIGALRM, _alarm_handler)
+                        _signal.alarm(timeout_seconds)
+                    path, cost = planner.plan()
+                except _TimeoutError:
+                    timed_out = True
+                    path = planner.best_path() if hasattr(planner, 'best_path') else []
+                    cost = planner.c_best if hasattr(planner, 'c_best') else np.inf
+                finally:
+                    if timeout_seconds > 0:
+                        _signal.alarm(0)
                 elapsed = time.time() - t0
                 stats = planner.get_stats()
 
@@ -888,7 +911,8 @@ def run(cfg: dict):
                     'time_elapsed': elapsed,
                     'iterations': stats[-1]['iteration'] if stats else 0,
                 })
-                print(f'cost={cost:.4f}  time={elapsed:.2f}s')
+                timeout_tag = '  [TIMEOUT]' if timed_out else ''
+                print(f'cost={cost:.4f}  time={elapsed:.2f}s{timeout_tag}')
 
                 # Save image on last trial only
                 if save_image and trial == n_trials - 1:

@@ -378,11 +378,13 @@ class RITStar:
         self._bridge_fraction = 0.3  # fraction of batch for bridge samples
 
         # ── Contribution 4: Dimension-Adaptive Early Stopping ─────────
-        # Higher dimensions need more iterations to converge, so we
-        # scale the convergence window and tighten the tolerance.
-        self._early_stop_window = 25 + 8 * max(0, self.dim - 2)
+        # Window and tolerance are kept loose so the planner is not
+        # terminated before the budget (timeout / max_iterations) is
+        # exhausted.  Convergence is declared only when the relative
+        # improvement over the last window is negligible (< 0.3%).
+        self._early_stop_window = 40 + 10 * max(0, self.dim - 2)
         self._best_cost_window: deque = deque(maxlen=self._early_stop_window)
-        self._early_stop_tol = max(0.0005, 0.002 / self.dim)
+        self._early_stop_tol = max(0.003, 0.005 / max(self.dim - 1, 1))
 
         # ── Contribution 5: Adaptive Oversampling Factor ──────────────
         # Track whitened-sampling acceptance rate and dynamically adjust
@@ -737,41 +739,29 @@ class RITStar:
         n = max(n_vertices, 2)
         d = self.dim
 
-        # Riemannian volume of informed set (or workspace if no solution)
-        if self.c_best < np.inf:
-            mu_R = self._riemannian_informed_volume()
-        else:
-            mu_R = self._riemannian_workspace_volume()
+        # Use the Euclidean informed-set (or workspace) volume for the
+        # BIT*-style AO connection radius.  The Riemannian volume ratio
+        # (Vol(I_R)/Vol(I_E)) can be orders of magnitude smaller than 1
+        # for high-anisotropy metrics (e.g. DiagonalAnisotropic([6,1,2])
+        # gives vr ≈ 0.026, shrinking the radius to 0.3× and the
+        # neighborhood to ~3% of the Euclidean case).  The k-connectivity
+        # guarantee requires the radius to scale with the Lebesgue
+        # (Euclidean) measure of the free space, not the Riemannian
+        # measure — the metric governs edge costs and sampling, not
+        # graph connectivity.
+        mu = self._quick_volume()
+        mu = max(mu, 1e-12)
 
-        mu_R = max(mu_R, 1e-12)
-
-        # gamma_R from Theorem 2 — matches Eq. (radius) in the paper
-        gamma_R = 2.0 * ((1.0 / d) ** (1.0 / d)) * \
-                  ((mu_R / self._zeta_d) ** (1.0 / d))
-
-        r_R = gamma_R * ((np.log(n) / n) ** (1.0 / d))
+        # Standard BIT* formula: r = r_factor * (log(n)/n * vol/zeta)^(1/d)
+        r_R = self.r_factor * \
+              ((np.log(n) / n) ** (1.0 / d)) * \
+              ((mu / self._zeta_d) ** (1.0 / d))
 
         # Dimension-adaptive radius boost: in high-D the theoretical
         # radius is often too small for practical finite-sample
-        # performance.  A mild multiplicative boost improves connectivity
-        # without breaking the AO guarantee (only affects finite time).
+        # performance.
         if d >= 4:
             r_R *= 1.0 + 0.15 * (d - 3)
-
-        # Apply user-configured radius multiplier.
-        # This was intended to tune finite-sample connectivity but was
-        # accidentally not used, making the planner overly conservative.
-        r_R *= self.r_factor
-
-        # Scale factor: if KD-tree uses weighted coords, radius is already
-        # in weighted space. Otherwise, convert Riemannian radius to Euclidean.
-        if self._use_weighted_kd:
-            # In weighted space, Riemannian distance ~ Euclidean distance
-            pass
-        else:
-            # For spatially-varying metrics, use min eigenvalue scaling
-            lam_min = self._mc.min_eigenvalue()
-            r_R = r_R / max(np.sqrt(lam_min), 1e-6)
 
         # Clamp
         diag = np.sqrt(sum((hi - lo) ** 2 for lo, hi in self.bounds))
@@ -873,9 +863,10 @@ class RITStar:
             kd = KDTree(tree_coords)
 
         r = self._compute_connection_radius(n_tree + len(unconnected))
-        max_neighbours = min(
-            15 + iteration // 15 + 3 * max(0, self.dim - 3),
-            20 + 5 * self.dim)
+        # Use a fixed generous cap rather than a slow ramp-up so that
+        # rewiring opportunities are never artificially capped in early
+        # iterations where the tree is sparse and every neighbor counts.
+        max_neighbours = 20 + 5 * self.dim
 
         # Build edge queue: tree vertex → unconnected sample
         # Ordered by f(e) = g(v) + ĉ_R(v,x) + ĥ_R(x) using L1 estimates

@@ -43,8 +43,8 @@ planners: ['RIT*', 'GA-RRT*', 'BIT*', 'Informed RRT*', 'AIT*', 'EIT*', 'APT*']
 environments: ['2D Random World', '3D Diagonal', 'UR10_pick_place_drill', 'Tiago 14D simple']
 
 # Benchmark parameters
-timeout_seconds: 100
-n_trials: 2
+timeout_seconds: 250
+n_trials: 10
 max_iterations: 200
 batch_size: 100
 base_seed: 60
@@ -66,7 +66,7 @@ save_gif: true
 run_benchmark_plots: true
 generate_benchmark_plots: true
 generate_benchmark_tables: true
-bench_timeout_seconds: 150
+bench_timeout_seconds: 250
 bench_cache_file: results/benchmark_data.pkl
 
 # ── Monte Carlo comparison ───────────────────────────────────────────# run_mc: run the full Monte Carlo comparison pipeline

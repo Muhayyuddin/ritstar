@@ -7,25 +7,36 @@ RIT* extends BIT* with a Riemannian metric field that encodes obstacle proximity
 
 ---
 
-## Requirements
+## Setup
 
-**Python ≥ 3.10** with the following packages:
-
-```
-numpy scipy matplotlib pyyaml numba tqdm
-```
-
-For 6-D and 14-D environments (UR10 and Tiago):
-
-```
-pybullet
-```
-
-Install all at once:
+### 1 — Create a virtual environment
 
 ```bash
-pip install numpy scipy matplotlib pyyaml numba tqdm pybullet
+python3 -m venv .venv
 ```
+
+> **Note:** On Ubuntu/Debian you may need to install the `venv` package first:
+> ```bash
+> sudo apt install python3-venv python3-full
+> ```
+
+### 2 — Activate the virtual environment
+
+```bash
+# Linux / macOS
+source .venv/bin/activate
+
+# Windows (PowerShell)
+.venv\Scripts\Activate.ps1
+```
+
+### 3 — Install dependencies
+
+```bash
+pip install -r requirements.txt
+```
+
+All required packages (`numpy`, `scipy`, `matplotlib`, `pyyaml`, `numba`, `pybullet`) are listed in [requirements.txt](requirements.txt).
 
 ---
 
