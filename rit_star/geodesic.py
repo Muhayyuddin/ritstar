@@ -87,6 +87,128 @@ def diagonal_geodesic(x: np.ndarray, y: np.ndarray,
     return float(np.sqrt(max(diff @ Gm @ diff, 0.0)))
 
 
+def midpoint_geodesic_distance(x: np.ndarray, y: np.ndarray,
+                                metric: RiemannianMetric) -> float:
+    """Midpoint-based Riemannian geodesic distance (arXiv:2602.00992).
+
+    Computes the approximation
+
+        d̂(x, y) = ‖y − x‖_{G((x+y)/2)}
+                 = √( (y−x)ᵀ G((x+y)/2) (y−x) )
+
+    which matches the true geodesic distance with third-order accuracy
+    (Theorem 4.1 of Kyaw & Kelly, WAFR 2026).  Only ONE metric
+    evaluation per call regardless of dimensionality, compared to the
+    10-point GL quadrature used in the straight-line arc-length
+    approximation.
+
+    Fast-path specialisations
+    --------------------------
+    * EuclideanMetric          → pure L2, O(d)
+    * DiagonalAnisotropicMetric → weighted L2, O(d)
+    * CollisionAdaptiveMetric over Euclidean/Diagonal base →
+      single _collision_scale() call + O(d) arithmetic
+
+    Parameters
+    ----------
+    x, y : (d,) arrays
+    metric : RiemannianMetric
+
+    Returns
+    -------
+    float
+        Geodesic distance approximation.
+    """
+    from .metric import (EuclideanMetric, DiagonalAnisotropicMetric,
+                         CollisionAdaptiveMetric)
+
+    diff = y - x
+    sq = float(diff @ diff)
+    if sq < 1e-24:
+        return 0.0
+
+    if isinstance(metric, EuclideanMetric):
+        return float(np.sqrt(sq))
+
+    if isinstance(metric, DiagonalAnisotropicMetric):
+        w = metric._weights
+        return float(np.sqrt(max(float(diff @ (w * diff)), 0.0)))
+
+    if isinstance(metric, CollisionAdaptiveMetric):
+        mid = 0.5 * (x + y)
+        s = metric._collision_scale(mid)          # single kernel-sum call
+        base = metric.base
+        if isinstance(base, EuclideanMetric):
+            return float(np.sqrt(max(s * sq, 0.0)))
+        if isinstance(base, DiagonalAnisotropicMetric):
+            w = base._weights
+            return float(np.sqrt(max(s * float(diff @ (w * diff)), 0.0)))
+        # General CARM base
+        Gb = base.G(mid)
+        return float(np.sqrt(max(s * float(diff @ Gb @ diff), 0.0)))
+
+    # General metric: single G evaluation at midpoint
+    mid = 0.5 * (x + y)
+    Gm = metric.G(mid)
+    return float(np.sqrt(max(float(diff @ Gm @ diff), 0.0)))
+
+
+def batch_midpoint_distances(points: np.ndarray, query: np.ndarray,
+                              metric: RiemannianMetric) -> np.ndarray:
+    """Vectorised midpoint-based distances from each row of *points* to *query*.
+
+    Implements the same approximation as :func:`midpoint_geodesic_distance`
+    but over an (N, d) array in a single NumPy call, exploiting fast paths
+    for Euclidean, Diagonal, and CARM metrics.
+
+    Parameters
+    ----------
+    points : (N, d) array
+    query  : (d,)  array
+    metric : RiemannianMetric
+
+    Returns
+    -------
+    (N,) array
+    """
+    from .metric import (EuclideanMetric, DiagonalAnisotropicMetric,
+                         CollisionAdaptiveMetric)
+
+    diffs = points - query                   # (N, d)
+
+    if isinstance(metric, EuclideanMetric):
+        return np.linalg.norm(diffs, axis=1)
+
+    if isinstance(metric, DiagonalAnisotropicMetric):
+        w = metric._weights                  # (d,)
+        return np.sqrt(np.maximum(
+            np.einsum('ij,j,ij->i', diffs, w, diffs), 0.0))
+
+    if isinstance(metric, CollisionAdaptiveMetric):
+        mids = 0.5 * (points + query)        # (N, d)
+        scales = metric._collision_scale_batch(mids)   # (N,)
+        base = metric.base
+        if isinstance(base, EuclideanMetric):
+            base_sq = np.einsum('ij,ij->i', diffs, diffs)
+        elif isinstance(base, DiagonalAnisotropicMetric):
+            w = base._weights
+            base_sq = np.einsum('ij,j,ij->i', diffs, w, diffs)
+        else:
+            # Per-point G evaluation for exotic CARM bases
+            base_sq = np.array([
+                float(d @ base.G(m) @ d)
+                for d, m in zip(diffs, mids)
+            ])
+        return np.sqrt(np.maximum(scales * base_sq, 0.0))
+
+    # General: one G(midpoint) per row — still avoids quadrature
+    mids = 0.5 * (points + query)            # (N, d)
+    return np.array([
+        float(np.sqrt(max(float(d @ metric.G(m) @ d), 0.0)))
+        for d, m in zip(diffs, mids)
+    ])
+
+
 def conformal_geodesic(x: np.ndarray, y: np.ndarray,
                        metric: RiemannianMetric,
                        n_quad: int = 5) -> float:
@@ -494,15 +616,11 @@ class GeodesicComputer:
         if self.tier == 'euclidean':
             return euclidean_distance(x, y)
         elif self.tier == 'diagonal':
-            # Use accurate conformal integration if available
-            if self._use_conformal and self._metric_cache is not None:
-                # Use L2 edge cost from cache for accurate integration
-                return self._metric_cache.edge_cost_l2(x, y)
-            elif self._use_conformal:
-                # Fallback to conformal geodesic without cache
-                return conformal_geodesic(x, y, self.metric)
-            else:
-                return diagonal_geodesic(x, y, self.metric)
+            # Midpoint-based geodesic approximation (arXiv:2602.00992).
+            # O(h³) accuracy with a single metric evaluation — replaces
+            # both the old midpoint and the quadrature-along-straight-line
+            # approaches.  Fast paths for Euclidean/Diagonal/CARM metrics.
+            return midpoint_geodesic_distance(x, y, self.metric)
         elif self.tier == 'varadhan':
             return varadhan_geodesic(x, y, self.metric, self._heat)
         else:  # jacobi
@@ -543,12 +661,10 @@ class GeodesicComputer:
         if self.tier == 'euclidean':
             return np.linalg.norm(points - query, axis=1)
         elif self.tier == 'diagonal':
-            diff = points - query
-            mid = 0.5 * (points + query)
-            # For constant metrics, evaluate once
-            Gm = self.metric.G(mid[0] if len(mid) > 0 else query)
-            return np.sqrt(np.maximum(np.einsum('ij,jk,ik->i', diff,
-                                                 Gm, diff), 0.0))
+            # Use the paper's midpoint formula with proper per-row midpoints.
+            # The previous implementation incorrectly used mid[0] for all rows,
+            # which is wrong for spatially-varying metrics (CARM, etc.).
+            return batch_midpoint_distances(points, query, self.metric)
         else:
             # Fall back to loop for spatially varying tiers
             return np.array([self.distance(p, query) for p in points])

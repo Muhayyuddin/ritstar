@@ -37,8 +37,8 @@ pip install numpy scipy matplotlib pyyaml numba tqdm pybullet
 python run_from_config.py
 ```
 
-This reads `config/run_config.yaml` and runs all six planners
-(RIT\*, BIT\*, Informed RRT\*, AIT\*, EIT\*, APT\*) on the four paper environments.
+This reads `config/run_config.yaml` and runs all seven planners
+(RIT\*, GA-RRT\*, BIT\*, Informed RRT\*, AIT\*, EIT\*, APT\*) on the four paper environments.
 Results and plots are written to `results/` and `visualization/`.
 
 ### Run the ablation study (Table III)

@@ -25,94 +25,52 @@ from scipy.spatial import KDTree
 from typing import Callable, List, Optional, Tuple
 
 from .metric import (RiemannianMetric, DiagonalAnisotropicMetric,
-                     EuclideanMetric, ObstacleInflatedMetric)
+                     EuclideanMetric)
 from .metric import CollisionAdaptiveMetric
-from .geodesic import GeodesicComputer, diagonal_geodesic
+from .geodesic import GeodesicComputer, diagonal_geodesic, midpoint_geodesic_distance
 from .informed_set import RiemannianInformedSet, EuclideanInformedSet, volume_ratio_bound
 from .metric_cache import MetricFieldCache
 
 
 # ═══════════════════════════════════════════════════════════════════════
-# Utility: edge cost via Gaussian quadrature
+# Utility: midpoint-based geodesic edge cost (arXiv:2602.00992)
 # ═══════════════════════════════════════════════════════════════════════
-
-# Pre-compute Gauss-Legendre nodes/weights once (mapped to [0,1]).
-_GL_NODES_10, _GL_WEIGHTS_10 = np.polynomial.legendre.leggauss(10)
-_GL_TS = 0.5 * (_GL_NODES_10 + 1.0)
-_GL_WS = 0.5 * _GL_WEIGHTS_10
 
 
 def riemannian_edge_cost(x: np.ndarray, y: np.ndarray,
                          metric: RiemannianMetric,
                          n_quad: int = 10) -> float:
-    """Riemannian arc-length along the straight-line segment [x, y].
+    """Riemannian geodesic distance between x and y.
 
-    c(x,y) = ∫₀¹ √( ẋ(t)ᵀ G(x(t)) ẋ(t) ) dt
+    Uses the midpoint-based approximation from Kyaw & Kelly (arXiv:2602.00992):
 
-    approximated with *n_quad*-point Gaussian quadrature.
-    For spatially-constant metrics (Euclidean, DiagonalAnisotropic)
-    the integral is computed in closed form for speed.
+        d̂(x, y) = √( (y−x)ᵀ G((x+y)/2) (y−x) )
+
+    This matches the true geodesic distance with third-order accuracy O(h³)
+    and requires only ONE metric evaluation per call, replacing the previous
+    10-point Gauss–Legendre quadrature along the straight line (which was
+    inconsistent with the heuristic and 10× slower for CARM).
+
+    The ``n_quad`` parameter is kept for API compatibility but ignored.
 
     Parameters
     ----------
     x, y : (d,) arrays
     metric : RiemannianMetric
     n_quad : int
-        Number of Gauss–Legendre quadrature points (default 10).
+        Unused — kept for backward compatibility.
 
     Returns
     -------
     float
-        Riemannian traversal cost along the segment.
-
-    Notes
-    -----
-    This is the *actual* edge cost used in the search tree — not the
-    geodesic heuristic.  The distinction matters for spatially-varying
-    metrics where the straight line is not a geodesic.
     """
-    diff = y - x
-    # Fast path: constant metrics — integrand is constant, integral = integrand.
-    if isinstance(metric, EuclideanMetric):
-        return float(np.sqrt(diff @ diff))
-    if isinstance(metric, DiagonalAnisotropicMetric):
-        w = metric._weights
-        return float(np.sqrt(diff @ (w * diff)))
-
-    # Fast path: conformal (isotropic) spatially-varying metric G(x) = s(x)·I
-    # cost = ||diff|| · ∫₀¹ sqrt(s(x(t))) dt
-    # Evaluate all 10 quadrature points at once via vectorised _scale_batch.
-    if isinstance(metric, ObstacleInflatedMetric):
-        pts = x[None, :] + np.outer(_GL_TS, diff)  # (10, d)
-        scales = metric._scale_batch(pts)           # (10,) scalar field values
-        return float(np.linalg.norm(diff)) * float(np.dot(_GL_WS, np.sqrt(scales)))
-
-    # General case: Gaussian quadrature
-    cost = 0.0
-    for t, w in zip(_GL_TS, _GL_WS):
-        pt = x + t * diff
-        Gpt = metric.G(pt)
-        integrand = np.sqrt(max(float(diff @ Gpt @ diff), 0.0))
-        cost += w * integrand
-    return cost
+    return midpoint_geodesic_distance(x, y, metric)
 
 
 def _fast_edge_cost(x: np.ndarray, y: np.ndarray,
                     metric: RiemannianMetric) -> float:
-    """Fast 1-point midpoint edge cost estimate.
-
-    Uses a single metric evaluation at the midpoint instead of 10-point
-    quadrature.  Sufficient for neighbor ranking and filtering.
-    """
-    diff = y - x
-    if isinstance(metric, EuclideanMetric):
-        return float(np.sqrt(diff @ diff))
-    if isinstance(metric, DiagonalAnisotropicMetric):
-        w = metric._weights
-        return float(np.sqrt(diff @ (w * diff)))
-    mid = 0.5 * (x + y)
-    Gm = metric.G(mid)
-    return float(np.sqrt(max(float(diff @ Gm @ diff), 0.0)))
+    """Fast midpoint edge cost — same as riemannian_edge_cost."""
+    return midpoint_geodesic_distance(x, y, metric)
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -799,6 +757,11 @@ class RITStar:
         # without breaking the AO guarantee (only affects finite time).
         if d >= 4:
             r_R *= 1.0 + 0.15 * (d - 3)
+
+        # Apply user-configured radius multiplier.
+        # This was intended to tune finite-sample connectivity but was
+        # accidentally not used, making the planner overly conservative.
+        r_R *= self.r_factor
 
         # Scale factor: if KD-tree uses weighted coords, radius is already
         # in weighted space. Otherwise, convert Riemannian radius to Euclidean.

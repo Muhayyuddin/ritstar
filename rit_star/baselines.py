@@ -30,7 +30,7 @@ from typing import Callable, List, Optional, Tuple
 
 from .metric import EuclideanMetric, RiemannianMetric
 from .geodesic import GeodesicComputer
-from .informed_set import EuclideanInformedSet
+from .informed_set import EuclideanInformedSet, RiemannianInformedSet
 from .rit_star import Node, riemannian_edge_cost, check_edge_collision, _fast_edge_cost
 
 
@@ -53,7 +53,7 @@ def _init_common(obj, x_start, x_goal, c_space_bounds, collision_checker,
     obj._hi = np.array([b[1] for b in obj.bounds])
     from scipy.special import gamma as gamma_fn
     obj._zeta_d = (np.pi ** (obj.dim / 2.0)) / gamma_fn(obj.dim / 2.0 + 1.0)
-    obj._stats: list = []
+    obj._stats = []
     obj._t0 = 0.0
 
 
@@ -137,8 +137,8 @@ class InformedRRTStar:
         self.start_node = Node(self.x_start, cost=0.0)
         self.start_node.heuristic = float(np.linalg.norm(self.x_start - self.x_goal))
         self.start_node.f_value = self.start_node.heuristic
-        self.goal_node: Optional[Node] = None
-        self.vertices: List[Node] = [self.start_node]
+        self.goal_node = None
+        self.vertices = [self.start_node]
         self.c_best = np.inf
 
         # Euclidean informed set (built when c_best < inf)
@@ -324,6 +324,248 @@ class InformedRRTStar:
             'euclidean_set_volume': euclid_vol,
             'volume_ratio': 1.0,
             'acceptance_rate': 1.0,
+            'time_elapsed': elapsed,
+            'n_samples_total': (iteration + 1) * self.batch_size,
+        })
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# 1b. GA-RRT* — Geometry-aware manifold baseline (arXiv:2602.00992)
+# ═══════════════════════════════════════════════════════════════════════
+
+class GeometryAwareRRTStar:
+    """Geometry-aware RRT* baseline on Riemannian manifolds.
+
+    This baseline mirrors the midpoint-geodesic manifold approach from
+    arXiv:2602.00992:
+      • Geodesic distance approximation uses midpoint metric evaluation
+        via ``GeodesicComputer(tier='diagonal')``.
+      • Sampling is done from a Riemannian informed set
+        ``I_R = {x : d_R(xs,x) + d_R(x,xg) <= c_best}``.
+      • Tree growth/rewiring remains RRT*-style for fair comparison.
+
+    Edge costs are still evaluated using ``riemannian_edge_cost`` so all
+    planners are scored under the same objective.
+    """
+
+    def __init__(self,
+                 x_start: np.ndarray,
+                 x_goal: np.ndarray,
+                 c_space_bounds: list,
+                 collision_checker: Callable,
+                 metric: RiemannianMetric,
+                 batch_size: int = 100,
+                 max_iterations: int = 200,
+                 connection_radius_factor: float = 1.1,
+                 prune_threshold: float = 1.05,
+                 random_seed: int = 0):
+
+        self.x_start = np.asarray(x_start, dtype=float)
+        self.x_goal = np.asarray(x_goal, dtype=float)
+        self.dim = len(self.x_start)
+        self.bounds = [(float(lo), float(hi)) for lo, hi in c_space_bounds]
+        self.collision_free = collision_checker
+        self.metric = metric
+        self.batch_size = batch_size
+        self.max_iterations = max_iterations
+        self.r_factor = connection_radius_factor
+        self.prune_thresh = prune_threshold
+        self.rng = np.random.default_rng(random_seed)
+
+        self.gc = GeodesicComputer(metric, tier='diagonal', bounds=self.bounds)
+
+        self.start_node = Node(self.x_start, cost=0.0)
+        self.start_node.heuristic = self.gc.heuristic(self.x_start, self.x_goal)
+        self.start_node.f_value = self.start_node.heuristic
+        self.goal_node: Optional[Node] = None
+        self.vertices: List[Node] = [self.start_node]
+        self.c_best = np.inf
+
+        self._ris = None
+        self._eis_proxy = None
+
+        from scipy.special import gamma as gamma_fn
+        self._zeta_d = (np.pi ** (self.dim / 2.0)) / gamma_fn(self.dim / 2.0 + 1.0)
+
+        self._stats = []
+        self._t0 = 0.0
+
+    def plan(self) -> Tuple[List[np.ndarray], float]:
+        self._t0 = time.time()
+        for it in range(self.max_iterations):
+            samples = self._sample_batch()
+            self._extend_tree(samples)
+            if self.c_best < np.inf:
+                self._prune()
+                self._update_informed_set()
+            elapsed = time.time() - self._t0
+            self._record_stats(it, elapsed)
+        return self._extract_path(), self.c_best
+
+    def get_stats(self) -> list:
+        return self._stats
+
+    def _sample_batch(self) -> np.ndarray:
+        n = self.batch_size - 1
+        if self.c_best < np.inf and self._ris is not None:
+            pts = self._ris.sample(n, rng=self.rng)
+        else:
+            lo = np.array([b[0] for b in self.bounds])
+            hi = np.array([b[1] for b in self.bounds])
+            pts = self.rng.uniform(lo, hi, size=(n, self.dim))
+        return np.vstack([pts, self.x_goal.reshape(1, -1)])
+
+    def _compute_r(self, n_vertices):
+        n = max(n_vertices, 2)
+        vol = float(np.prod([hi - lo for lo, hi in self.bounds]))
+        if self._eis_proxy is not None and self.c_best < np.inf:
+            vol = self._eis_proxy.volume()
+        vol = max(vol, 1e-12)
+        r = self.r_factor * ((np.log(n) / n) ** (1.0 / self.dim)) * \
+            ((vol / self._zeta_d) ** (1.0 / self.dim))
+        diag = np.sqrt(sum((hi - lo) ** 2 for lo, hi in self.bounds))
+        return min(r, diag * 0.5)
+
+    def _extend_tree(self, samples):
+        coords = np.array([v.x for v in self.vertices])
+        kd = KDTree(coords)
+        r = self._compute_r(len(self.vertices) + len(samples))
+
+        for s in samples:
+            if not self.collision_free(s):
+                continue
+            idxs = kd.query_ball_point(s, r)
+            if not idxs:
+                _, idx = kd.query(s)
+                idxs = [idx]
+
+            best_parent = None
+            best_cost = np.inf
+            for idx in idxs:
+                v = self.vertices[idx]
+                if v.cost + self.gc.heuristic(v.x, s) >= best_cost:
+                    continue
+                ec = riemannian_edge_cost(v.x, s, self.metric)
+                nc = v.cost + ec
+                if nc < best_cost:
+                    if check_edge_collision(v.x, s, self.collision_free, n_checks=20):
+                        best_cost = nc
+                        best_parent = v
+            if best_parent is None:
+                continue
+
+            is_goal = np.allclose(s, self.x_goal, atol=1e-8)
+            if is_goal and self.goal_node is not None:
+                if best_cost < self.goal_node.cost:
+                    if self.goal_node.parent is not None:
+                        p = self.goal_node.parent
+                        if self.goal_node in p.children:
+                            p.children.remove(self.goal_node)
+                    self.goal_node.parent = best_parent
+                    self.goal_node.cost = best_cost
+                    self.goal_node.f_value = best_cost
+                    best_parent.children.append(self.goal_node)
+                    self.c_best = best_cost
+                continue
+
+            nn = Node(s.copy(), cost=best_cost)
+            nn.parent = best_parent
+            nn.heuristic = self.gc.heuristic(s, self.x_goal)
+            nn.f_value = best_cost + nn.heuristic
+            best_parent.children.append(nn)
+            self.vertices.append(nn)
+
+            if is_goal:
+                self.goal_node = nn
+                nn.heuristic = 0.0
+                nn.f_value = best_cost
+                self.c_best = best_cost
+
+            for idx in idxs:
+                v = self.vertices[idx]
+                if v is best_parent or v is self.start_node:
+                    continue
+                if nn.cost + self.gc.heuristic(nn.x, v.x) >= v.cost:
+                    continue
+                ec = riemannian_edge_cost(nn.x, v.x, self.metric)
+                nc = nn.cost + ec
+                if nc < v.cost:
+                    if check_edge_collision(nn.x, v.x, self.collision_free, n_checks=20):
+                        if v.parent is not None and v in v.parent.children:
+                            v.parent.children.remove(v)
+                        v.parent = nn
+                        v.cost = nc
+                        v.f_value = nc + v.heuristic
+                        nn.children.append(v)
+                        self._propagate(v)
+
+            if self.goal_node is not None:
+                self.c_best = self.goal_node.cost
+
+    def _propagate(self, node):
+        stack = [node]
+        while stack:
+            n = stack.pop()
+            for ch in n.children:
+                ec = riemannian_edge_cost(n.x, ch.x, self.metric)
+                ch.cost = n.cost + ec
+                ch.f_value = ch.cost + ch.heuristic
+                stack.append(ch)
+
+    def _prune(self):
+        if self.c_best == np.inf:
+            return
+        thresh = self.prune_thresh * self.c_best
+        kept = []
+        for v in self.vertices:
+            if v is self.start_node or v is self.goal_node:
+                kept.append(v)
+            elif v.f_value <= thresh:
+                kept.append(v)
+            else:
+                if v.parent is not None and v in v.parent.children:
+                    v.parent.children.remove(v)
+        self.vertices = kept
+
+    def _update_informed_set(self):
+        if self.c_best < np.inf:
+            self._ris = RiemannianInformedSet(
+                self.x_start, self.x_goal, self.c_best,
+                self.gc, bounds=self.bounds)
+            self._eis_proxy = EuclideanInformedSet(
+                self.x_start, self.x_goal, self.c_best, bounds=self.bounds)
+
+    def _extract_path(self):
+        if self.goal_node is None:
+            return []
+        path = []
+        n = self.goal_node
+        while n is not None:
+            path.append(n.x.copy())
+            n = n.parent
+        path.reverse()
+        return path
+
+    def _record_stats(self, iteration, elapsed):
+        inf_vol = 0.0
+        euclid_vol = 0.0
+        acc_rate = 1.0
+        if self._eis_proxy is not None and self.c_best < np.inf:
+            euclid_vol = self._eis_proxy.volume()
+        if self._ris is not None and self.c_best < np.inf:
+            acc_rate = self._ris.acceptance_rate
+            vol_ratio = self._ris.analytical_volume_ratio()
+            inf_vol = euclid_vol * vol_ratio
+        else:
+            vol_ratio = 1.0
+        self._stats.append({
+            'iteration': iteration,
+            'n_vertices': len(self.vertices),
+            'c_best': self.c_best,
+            'informed_set_volume': inf_vol,
+            'euclidean_set_volume': euclid_vol,
+            'volume_ratio': vol_ratio,
+            'acceptance_rate': acc_rate,
             'time_elapsed': elapsed,
             'n_samples_total': (iteration + 1) * self.batch_size,
         })
@@ -1304,14 +1546,14 @@ def _common_init_apt(self, x_start, x_goal, c_space_bounds, collision_checker,
     self.start_node = Node(self.x_start, cost=0.0)
     self.start_node.heuristic = float(np.linalg.norm(self.x_start - self.x_goal))
     self.start_node.f_value = self.start_node.heuristic
-    self.goal_node: Optional[Node] = None
-    self.vertices: List[Node] = [self.start_node]
+    self.goal_node = None
+    self.vertices = [self.start_node]
     self.c_best = np.inf
 
     from scipy.special import gamma as gamma_fn
     self._zeta_d = (np.pi ** (self.dim / 2.0)) / gamma_fn(self.dim / 2.0 + 1.0)
 
-    self._stats: list = []
+    self._stats = []
     self._t0 = 0.0
 
 

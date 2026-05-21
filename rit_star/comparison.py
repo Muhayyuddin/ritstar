@@ -1,5 +1,5 @@
 """
-comparison.py — Monte Carlo comparison of all 6 planners across environments.
+comparison.py — Monte Carlo comparison of all 7 planners across environments.
 
 Generates:
   1. LaTeX-formatted results tables (also saved as CSV)
@@ -30,7 +30,14 @@ from scipy.stats import mannwhitneyu
 
 from visualization_util.output_paths import RESULTS_DIR, PLOTS_DIR
 from .rit_star import RITStar
-from .baselines import InformedRRTStar, BITStar, AITStar, EITStar, APTStar
+from .baselines import (
+    InformedRRTStar,
+    GeometryAwareRRTStar,
+    BITStar,
+    AITStar,
+    EITStar,
+    APTStar,
+)
 from .environments import (
     env_2d_diagonal_anisotropic,
     env_2d_obstacle_inflated,
@@ -62,6 +69,7 @@ from .environments import (
 
 PLANNER_NAMES = [
     'RIT*',
+    'GA-RRT*',
     'Informed RRT*',
     'BIT*',
     'AIT*',
@@ -71,6 +79,7 @@ PLANNER_NAMES = [
 
 PLANNER_COLORS = {
     'RIT*':          '#7B2FBE',   # purple
+    'GA-RRT*':       '#00695C',   # dark teal
     'Informed RRT*': '#2196F3',   # blue
     'BIT*':          '#4CAF50',   # green
     'AIT*':          '#FF9800',   # orange
@@ -106,6 +115,8 @@ def _build_planner(name, xs, xg, bounds, coll, metric,
                        carm_rebuild_interval=15)
     elif name == 'Informed RRT*':
         return InformedRRTStar(**common)
+    elif name == 'GA-RRT*':
+        return GeometryAwareRRTStar(**common)
     elif name == 'BIT*':
         return BITStar(**common)
     elif name == 'AIT*':
@@ -1201,7 +1212,7 @@ def run_full_comparison(n_trials: int = 10,
                         base_seed: int = 42,
                         visualize: bool = True,
                         environments: dict = None):
-    """Run the complete 6-planner × 6-environment comparison.
+    """Run the complete 7-planner × multi-environment comparison.
 
     Parameters
     ----------

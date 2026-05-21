@@ -37,6 +37,7 @@ from run_from_config import (
 
 PLANNER_COLORS = {
     'RIT*':          '#7B2FBE',
+    'GA-RRT*':       '#00695C',
     'RIT*-CARM':     '#00695C',
     'Informed RRT*': '#2196F3',
     'BIT*':          '#4CAF50',
@@ -47,6 +48,7 @@ PLANNER_COLORS = {
 
 PLANNER_LINESTYLES = {
     'RIT*':          '-',
+    'GA-RRT*':       '--',
     'RIT*-CARM':     '-',
     'Informed RRT*': '--',
     'BIT*':          '-.',
@@ -57,6 +59,7 @@ PLANNER_LINESTYLES = {
 
 PLANNER_MARKERS = {
     'RIT*':          'o',
+    'GA-RRT*':       'X',
     'RIT*-CARM':     's',
     'Informed RRT*': 's',
     'BIT*':          '^',

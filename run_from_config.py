@@ -22,8 +22,6 @@ from __future__ import annotations
 
 import gc
 import os
-import pickle
-import signal
 import sys
 import time
 import yaml
@@ -34,7 +32,14 @@ import matplotlib.pyplot as plt
 
 from visualization_util.output_paths import PLOTS_DIR, GIFS_DIR, IMAGES_DIR
 from rit_star.rit_star import RITStar
-from rit_star.baselines import InformedRRTStar, BITStar, AITStar, EITStar, APTStar
+from rit_star.baselines import (
+    InformedRRTStar,
+    GeometryAwareRRTStar,
+    BITStar,
+    AITStar,
+    EITStar,
+    APTStar,
+)
 from rit_star.metric import EuclideanMetric
 from rit_star.environments import (
     env_2d_diagonal_anisotropic,
@@ -65,18 +70,6 @@ from rit_star.environments import (
 )
 
 # ═══════════════════════════════════════════════════════════════════════
-#  Timeout helpers
-# ═══════════════════════════════════════════════════════════════════════
-
-class _TimeoutError(Exception):
-    """Raised when a planning call exceeds the configured timeout."""
-
-
-def _alarm_handler(signum, frame):  # noqa: ARG001
-    raise _TimeoutError()
-
-
-# ═══════════════════════════════════════════════════════════════════════
 #  Registries
 # ═══════════════════════════════════════════════════════════════════════
 
@@ -95,12 +88,24 @@ PLANNER_REGISTRY = {
     'eit*':          'EIT*',
     'apt':           'APT*',
     'apt*':          'APT*',
-    'carm':          'RIT*-CARM',
-    'rit-carm':      'RIT*-CARM',
-    'rit*-carm':     'RIT*-CARM',
+    'ga':                  'GA-RRT*',
+    'ga-rrt':              'GA-RRT*',
+    'ga-rrt*':             'GA-RRT*',
+    'geometry-aware':      'GA-RRT*',
+    'geometry-aware-rrt':  'GA-RRT*',
+    'geometry-aware-rrt*': 'GA-RRT*',
+    'riemannian-rrt':      'GA-RRT*',
+    'riemannian-rrt*':     'GA-RRT*',
+    'manifold-rrt':        'GA-RRT*',
+    'manifold-rrt*':       'GA-RRT*',
+    'paper2602':           'GA-RRT*',
+    '2602.00992':          'GA-RRT*',
+    'carm':                'RIT*-CARM',
+    'rit-carm':            'RIT*-CARM',
+    'rit*-carm':           'RIT*-CARM',
 }
 
-ALL_PLANNER_NAMES = ['RIT*', 'Informed RRT*', 'BIT*', 'AIT*', 'EIT*', 'APT*']
+ALL_PLANNER_NAMES = ['RIT*', 'GA-RRT*', 'Informed RRT*', 'BIT*', 'AIT*', 'EIT*', 'APT*']
 
 # Environment registry: canonical name → (factory_fn, dimension_tag)
 ENV_REGISTRY = {
@@ -181,9 +186,8 @@ if ALL_6D_ENVS:
 try:
     from rit_star.ur10_envs import UR10_ENV_REGISTRY as _UR10_ENV_REG
     for _ur10_name, _ur10_fn in _UR10_ENV_REG.items():
-        _dim_tag = '14d' if _ur10_name == 'Tiago 14D' else '6d'
-        ENV_REGISTRY[_ur10_name] = (_ur10_fn, _dim_tag)
-        # lowercase alias so users can type 'ur10_pick_shelf' / 'tiago_14d' too
+        ENV_REGISTRY[_ur10_name] = (_ur10_fn, '6d')
+        # lowercase alias so users can type 'ur10_pick_shelf' too
         ENV_ALIASES[_ur10_name.lower()] = [_ur10_name]
 except Exception as _e:
     print(f'[WARN] UR10 env registry unavailable: {_e}')
@@ -216,6 +220,8 @@ def _build_planner(name, xs, xg, bounds, coll, metric,
                        carm_rebuild_interval=15)
     elif name == 'Informed RRT*':
         return InformedRRTStar(**common)
+    elif name == 'GA-RRT*':
+        return GeometryAwareRRTStar(**common)
     elif name == 'BIT*':
         return BITStar(**common)
     elif name == 'AIT*':
@@ -277,8 +283,8 @@ def _resolve_environments(spec) -> list[str]:
         token_lower = str(token).strip().lower()
         if token_lower == 'all':
             return list(ENV_REGISTRY.keys())
-        # Check dimension tags: 2d, 3d, 6d, 14d, 2d_euclid, euclid
-        if token_lower in ('2d', '3d', '6d', '14d', '2d_euclid', 'euclid'):
+        # Check dimension tags: 2d, 3d, 6d, 2d_euclid, euclid
+        if token_lower in ('2d', '3d', '6d', '2d_euclid', 'euclid'):
             match_tag = token_lower
             if token_lower == 'euclid':
                 match_tag = '2d_euclid'
@@ -312,35 +318,24 @@ def load_config(path: str) -> dict:
     planners = _resolve_planners(cfg.get('planners', 'all'))
     environments = _resolve_environments(cfg.get('environments', 'all'))
 
-    n_trials     = int(cfg.get('n_trials', 2))
-    max_iterations = int(cfg.get('max_iterations', 150))
-    batch_size   = int(cfg.get('batch_size', 100))
-    base_seed    = int(cfg.get('base_seed', 42))
-
     return {
         'planners': planners,
         'environments': environments,
-        'n_trials': n_trials,
-        'max_iterations': max_iterations,
-        'batch_size': batch_size,
-        'base_seed': base_seed,
+        'n_trials': int(cfg.get('n_trials', 2)),
+        'max_iterations': int(cfg.get('max_iterations', 150)),
+        'batch_size': int(cfg.get('batch_size', 100)),
+        'base_seed': int(cfg.get('base_seed', 42)),
         # Output options
         'save_image': bool(cfg.get('save_image', False)),
         'save_gif': bool(cfg.get('save_gif', False)),
-        # Benchmark plots — fall back to the main run params when not explicitly set
+        # Benchmark plots
         'run_benchmark_plots': bool(cfg.get('run_benchmark_plots', False)),
         'generate_benchmark_plots': bool(cfg.get('generate_benchmark_plots', True)),
         'generate_benchmark_tables': bool(cfg.get('generate_benchmark_tables', True)),
-        'bench_n_trials': int(cfg.get('bench_n_trials', n_trials)),
-        'bench_max_iterations': int(cfg.get('bench_max_iterations', max_iterations)),
-        'bench_batch_size': int(cfg.get('bench_batch_size', batch_size)),
-        'bench_base_seed': int(cfg.get('bench_base_seed', base_seed)),
-        'bench_timeout_seconds': int(cfg.get('bench_timeout_seconds',
-                                             cfg.get('timeout_seconds', 200))),
-        'bench_cache_file': cfg.get('bench_cache_file', 'results/benchmark_data.pkl'),
-        # Per-trial timeout (seconds). Runs exceeding this limit are treated
-        # as no-solution (inf cost) and counted as failures in success rate.
-        'timeout_seconds': int(cfg.get('timeout_seconds', 200)),
+        'bench_n_trials': int(cfg.get('bench_n_trials', 10)),
+        'bench_max_iterations': int(cfg.get('bench_max_iterations', 150)),
+        'bench_batch_size': int(cfg.get('bench_batch_size', 100)),
+        'bench_base_seed': int(cfg.get('bench_base_seed', 42)),
         # Monte Carlo comparison
         'run_mc': bool(cfg.get('run_mc', False)),
         'mc_n_trials': int(cfg.get('mc_n_trials', 10)),
@@ -376,6 +371,7 @@ def load_config(path: str) -> dict:
 # Planner colors for comparison figures (matches rit_star/comparison.py)
 _PLANNER_COLORS = {
     'RIT*':          '#7B2FBE',   # purple
+    'GA-RRT*':       '#00695C',   # dark teal
     'RIT*-CARM':     '#00695C',   # dark teal
     'Informed RRT*': '#2196F3',   # blue
     'BIT*':          '#E91E63',   # pink
@@ -840,8 +836,6 @@ def run(cfg: dict):
     save_image = cfg.get('save_image', False)
     save_gif = cfg.get('save_gif', False)
 
-    timeout_seconds = int(cfg.get('timeout_seconds', 200))
-
     total_runs = len(planners) * len(environments) * n_trials
     print('=' * 60)
     print('  CONFIG-DRIVEN BENCHMARK')
@@ -852,7 +846,6 @@ def run(cfg: dict):
     print(f'  Max iters:     {max_iter}')
     print(f'  Batch size:    {batch_size}')
     print(f'  Base seed:     {base_seed}')
-    print(f'  Timeout:       {timeout_seconds}s')
     print(f'  Save images:   {save_image}')
     print(f'  Save GIFs:     {save_gif}')
     print(f'  Total runs:    {total_runs}')
@@ -882,39 +875,20 @@ def run(cfg: dict):
                 print(f'      Trial {trial + 1}/{n_trials} '
                       f'[{run_count}/{total_runs}] ...', end=' ', flush=True)
 
-                timed_out = False
                 t0 = time.time()
                 planner = _build_planner(
                     planner_name, xs, xg, bounds, coll, metric,
                     batch_size, max_iter, seed)
-                signal.signal(signal.SIGALRM, _alarm_handler)
-                signal.alarm(timeout_seconds)
-                try:
-                    path, cost = planner.plan()
-                    signal.alarm(0)  # cancel alarm on success
-                except _TimeoutError:
-                    path = None
-                    cost = np.inf
-                    timed_out = True
-                finally:
-                    signal.alarm(0)  # always cancel alarm
+                path, cost = planner.plan()
                 elapsed = time.time() - t0
-                try:
-                    stats = planner.get_stats()
-                except Exception:
-                    stats = []
+                stats = planner.get_stats()
 
                 trial_results.append({
                     'final_cost': cost if np.isfinite(cost) else np.inf,
                     'time_elapsed': elapsed,
                     'iterations': stats[-1]['iteration'] if stats else 0,
-                    'timed_out': timed_out,
                 })
-                if timed_out:
-                    print(f'TIMEOUT ({timeout_seconds}s) → inf  time={elapsed:.2f}s')
-                else:
-                    cost_disp = f'{cost:.4f}' if np.isfinite(cost) else 'inf'
-                    print(f'cost={cost_disp}  time={elapsed:.2f}s')
+                print(f'cost={cost:.4f}  time={elapsed:.2f}s')
 
                 # Save image on last trial only
                 if save_image and trial == n_trials - 1:
@@ -984,19 +958,17 @@ def run(cfg: dict):
         all_results[env_name] = env_results
 
     # ── Summary ───────────────────────────────────────────────────
-    print('\n' + '=' * 72)
+    print('\n' + '=' * 60)
     print('  SUMMARY')
-    print('=' * 72)
-    print(f'  {"Environment":<22} {"Planner":<18} {"Cost (mean±std)":<22} {"Time (mean)":<14} {"Success Rate"}')
-    print(f'  {"─" * 22} {"─" * 18} {"─" * 22} {"─" * 14} {"─" * 12}')
+    print('=' * 60)
+    print(f'  {"Environment":<22} {"Planner":<18} {"Cost (mean±std)":<22} {"Time (mean)"}')
+    print(f'  {"─" * 22} {"─" * 18} {"─" * 22} {"─" * 12}')
 
     for env_name, env_results in all_results.items():
         for planner_name, trials in env_results.items():
             costs = [t['final_cost'] for t in trials]
             times = [t['time_elapsed'] for t in trials]
             finite = [c for c in costs if np.isfinite(c)]
-            n = len(trials)
-            success_rate = 100.0 * len(finite) / n if n > 0 else 0.0
             if finite:
                 mean_c = np.mean(finite)
                 std_c = np.std(finite)
@@ -1004,24 +976,7 @@ def run(cfg: dict):
             else:
                 cost_str = 'no solution'
             mean_t = np.mean(times)
-            print(f'  {env_name:<22} {planner_name:<18} {cost_str:<22} {mean_t:.2f}s          {success_rate:.1f}% ({len(finite)}/{n})')
-
-    # ── Per-environment success rate table ────────────────────────
-    print('\n' + '=' * 72)
-    print('  SUCCESS RATE PER ENVIRONMENT')
-    print('=' * 72)
-    print(f'  {"Environment":<28} {"Planner":<18} {"Success Rate"}')
-    print(f'  {"─" * 28} {"─" * 18} {"─" * 20}')
-    for env_name, env_results in all_results.items():
-        for planner_name, trials in env_results.items():
-            costs = [t['final_cost'] for t in trials]
-            finite = [c for c in costs if np.isfinite(c)]
-            n = len(trials)
-            n_timeout = sum(1 for t in trials if t.get('timed_out', False))
-            n_no_soln = n - len(finite)
-            success_rate = 100.0 * len(finite) / n if n > 0 else 0.0
-            timeout_note = f'  ({n_timeout} timeout)' if n_timeout else ''
-            print(f'  {env_name:<28} {planner_name:<18} {success_rate:>6.1f}%  [{len(finite)}/{n}]{timeout_note}')
+            print(f'  {env_name:<22} {planner_name:<18} {cost_str:<22} {mean_t:.2f}s')
 
     print('\nDone.')
     return all_results
@@ -1074,43 +1029,22 @@ def run_benchmark(cfg: dict):
     print(f'  Bench max iters:  {cfg["bench_max_iterations"]}')
     print(f'  Bench batch size: {cfg["bench_batch_size"]}')
     print(f'  Bench base seed:  {cfg["bench_base_seed"]}')
-    print(f'  Bench timeout:    {cfg["bench_timeout_seconds"]}s')
     print(f'  Generate plots:   {cfg["generate_benchmark_plots"]}')
     print(f'  Generate tables:  {cfg["generate_benchmark_tables"]}')
     print('=' * 60)
 
     planners = cfg['planners']
     environments = cfg['environments']
-    cache_path = cfg.get('bench_cache_file', 'results/benchmark_data.pkl')
     all_results = {}
 
-    # ── Load existing cache (if present) ────────────────────────────
-    if cache_path and os.path.isfile(cache_path):
-        print(f'\n  Loading cached benchmark data from {cache_path}')
-        with open(cache_path, 'rb') as _f:
-            all_results = pickle.load(_f)
-        print(f'  Cached envs: {list(all_results.keys())}')
-
-    # ── Collect data for any env not yet in cache ────────────────────
-    missing = [e for e in environments if e not in all_results]
-    for env_name in missing:
+    for env_name in environments:
         env_fn, dim_tag = ENV_REGISTRY[env_name]
         print(f'\n  Environment: {env_name} ({dim_tag.upper()})')
         results = _collect_data(
             env_name, env_fn, planners, cfg['bench_n_trials'],
             cfg['bench_max_iterations'], cfg['bench_batch_size'],
-            cfg['bench_base_seed'], cfg.get('bench_timeout_seconds', 200))
+            cfg['bench_base_seed'])
         all_results[env_name] = results
-
-    # ── Persist / update cache ───────────────────────────────────────
-    if cache_path and missing:   # only write when new data was collected
-        os.makedirs(os.path.dirname(cache_path) or '.', exist_ok=True)
-        with open(cache_path, 'wb') as _f:
-            pickle.dump(all_results, _f)
-        print(f'\n  Benchmark data saved to {cache_path}')
-
-    # Only keep envs requested in this run for plotting / tables
-    all_results = {e: all_results[e] for e in environments if e in all_results}
 
     os.makedirs(PLOTS_DIR, exist_ok=True)
 
@@ -1151,8 +1085,6 @@ PYBULLET_DEMO_REGISTRY = {
                               'Place grasped bottle on top of shelf'),
     'test_env':              ('test_env.py',
                               'Static shelf scene — arm held at fixed q'),
-    'Tiago 14D':             ('Tiago_pro_dual_grasp_box.py',
-                              'Tiago Pro 14-D dual-arm bimanual pre-grasp'),
 }
 
 
@@ -1224,12 +1156,11 @@ def run_pybullet_demos(cfg: dict) -> None:
                       f'trial={trial+1}/{n_trials}  seed={seed} ...',
                       flush=True)
                 try:
-                    cmd = [sys.executable, script_path,
-                           '--max-iter', str(max_iter),
-                           '--batch-size', str(batch_size)]
-                    if not want_gui:
-                        cmd.append('--headless')
-                    subprocess.run(cmd, cwd=repo_root, env=env, check=False)
+                    subprocess.run(
+                        [sys.executable, script_path,
+                         '--max-iter', str(max_iter),
+                         '--batch-size', str(batch_size)],
+                        cwd=repo_root, env=env, check=False)
                 except KeyboardInterrupt:
                     print(f'      [INT] {demo_name}/{planner_name} interrupted.')
 

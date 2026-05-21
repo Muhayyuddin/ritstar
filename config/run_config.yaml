@@ -5,7 +5,8 @@
 # Specify which planners to run on which environments.
 #
 # PLANNERS (case-insensitive, partial match):
-#   RIT, BIT, IRRT (or "Informed RRT"), AIT, EIT, APT, CARM (or RIT-CARM)
+#   RIT, GA (or GA-RRT), BIT, IRRT (or "Informed RRT"), AIT, EIT, APT,
+#   CARM (or RIT-CARM)
 #   "all" = every planner
 #
 # ENVIRONMENTS (case-insensitive, by dimension or name):
@@ -38,12 +39,12 @@
 # ═══════════════════════════════════════════════════════════════════════
 
 # Paper benchmark: all planners on the 4 paper environments (Table II)
-planners: ['RIT*', 'BIT*', 'Informed RRT*', 'AIT*', 'EIT*', 'APT*']
-environments: [2D, 3D]
+planners: ['RIT*', 'GA-RRT*', 'BIT*', 'Informed RRT*', 'AIT*', 'EIT*', 'APT*']
+environments: ['2D Random World', '3D Diagonal', 'UR10_pick_place_drill', 'Tiago 14D simple']
 
 # Benchmark parameters
-timeout_seconds: 300
-n_trials: 10
+timeout_seconds: 100
+n_trials: 2
 max_iterations: 200
 batch_size: 100
 base_seed: 60
@@ -62,10 +63,10 @@ save_gif: true
 # generate_benchmark_tables: generate Table II / III-style benchmark
 #                            tables (CSV + LaTeX + console)
 # bench parameters below are only used when run_benchmark_plots is true.
-run_benchmark_plots: false
-generate_benchmark_plots: false
-generate_benchmark_tables: false
-bench_timeout_seconds: 350
+run_benchmark_plots: true
+generate_benchmark_plots: true
+generate_benchmark_tables: true
+bench_timeout_seconds: 150
 bench_cache_file: results/benchmark_data.pkl
 
 # ── Monte Carlo comparison ───────────────────────────────────────────# run_mc: run the full Monte Carlo comparison pipeline

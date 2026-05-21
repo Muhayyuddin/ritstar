@@ -21,8 +21,11 @@ import numpy as np
 import pybullet as p
 
 _REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+_MANIPULATION = os.path.join(_REPO, 'manipulation')
 if _REPO not in sys.path:
     sys.path.insert(0, _REPO)
+if _MANIPULATION not in sys.path:
+    sys.path.insert(0, _MANIPULATION)
 
 from manipulator_env.pybullet_env import UR10eRobotiqEnv
 from manipulator_env.planner_interface import ManipulatorInertiaMetric
@@ -217,7 +220,7 @@ def env_tiago_14d():
     import importlib.util, os
     _spec = importlib.util.spec_from_file_location(
         'tiago_demo',
-        os.path.join(_REPO, 'Tiago_pro_dual_grasp_box.py'))
+        os.path.join(_MANIPULATION, 'Tiago_pro_dual_grasp_box.py'))
     demo = importlib.util.module_from_spec(_spec)
     _spec.loader.exec_module(demo)
 
@@ -318,7 +321,7 @@ def env_tiago_14d_simple():
     import importlib.util, os
     _spec = importlib.util.spec_from_file_location(
         'tiago_pro_demo',
-        os.path.join(_REPO, 'tiago_pro.py'))
+        os.path.join(_MANIPULATION, 'tiago_pro.py'))
     demo = importlib.util.module_from_spec(_spec)
     _spec.loader.exec_module(demo)
 
