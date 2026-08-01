@@ -9,7 +9,7 @@ Reference implementation accompanying the IEEE RA-L paper:
 > *IEEE Robotics and Automation Letters*, 2026.
 
 <p align="center">
-  <img src="assets/gifs/config_2d_random_world_tree_growth_carm.gif" width="70%" alt="RIT* tree growth on the 2-D random world with CARM enabled"/>
+  <img src="assets/gifs/config_2d_random_world_tree_growth_carm.gif" width="20%" alt="RIT* tree growth on the 2-D random world with CARM enabled"/>
 </p>
 
 <table align="center">
