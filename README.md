@@ -1,13 +1,57 @@
-# RIT\* — Riemannian Informed Trees
+# RIT\* Riemannian Informed Trees
 
 **Cost-Adaptive Optimal Motion Planning with Riemannian Informed Sampling**
 
-Reference implementation accompanying the IEEE RA-L paper:
 
-> M. Ud Din, A. Nadar, J. Rosell, I. Hussain.
-> **"RIT\*: Riemannian Informed Trees for Cost-Adaptive Optimal Motion Planning."**
-> *IEEE Robotics and Automation Letters*, 2026.
+## Abstract
 
+We present **Riemannian Informed Trees (RIT\*)**, a planning framework that
+replaces Euclidean primitives in batch-informed search with their Riemannian
+counterparts. RIT\* constructs a tighter, cost-consistent informed set,
+performs a nearest-neighbour search under an anisotropic distance metric, and
+evaluates edge costs efficiently via a cascading scheme. We further introduce a
+**Collision-Adaptive Metric Refinement (CARM)**, which learns an
+obstacle-proximity cost field online from collision feedback, reducing the
+reliance on prior metric design in practical settings.
+
+Experiments across environments from 2-D to 14-D show that RIT\* is competitive
+in low-dimensional and spatially constant-metric settings and produces
+substantially lower-cost solutions when the metric varies spatially in
+high-dimensional configuration spaces. Performance gains scale with anisotropy
+and dimension, reaching up to **13.0 %** improvement in median initial cost
+over BIT\* in the 3-D anisotropic benchmark, up to **9.0 %** in median final
+cost in 6-DOF manipulation, and **24.8 – 63.5 %** in a 14-DOF bimanual planning
+problem, where Euclidean-informed baselines degrade.
+
+---
+
+## Contributions
+
+1. **Riemannian informed planning.** The informed set, nearest-neighbour
+   search, and edge cost are all defined under a spatially varying metric
+   tensor $G(x)$, focusing sampling on cost-relevant regions.
+2. **Online proximity-aware metric refinement (CARM).** A collision-adaptive
+   metric learned from planning feedback; no prior obstacle knowledge required.
+3. **Comprehensive evaluation.** 2-D / 3-D benchmarks, 6-DOF UR10e
+   manipulation (simulation and real robot), and 14-DOF Tiago Pro bimanual
+   planning, compared against seven asymptotically optimal baselines.
+
+---
+
+## Citation
+
+If you use RIT\* in your research, please cite:
+
+```bibtex
+@article{uddin2026rit,
+  title   = {RIT*: Riemannian Informed Trees for Cost-Adaptive Optimal Motion Planning},
+  author  = {Ud Din, Muhayy and Nadar, Ahmed and Rosell, Jan and Hussain, Irfan},
+  journal = {IEEE Robotics and Automation Letters},
+  year    = {2026}
+}
+```
+
+---
 <table align="center">
   <tr>
     <td align="center" width="25%">
@@ -59,56 +103,6 @@ Reference implementation accompanying the IEEE RA-L paper:
     </td>
   </tr>
 </table>
-
----
-
-## Abstract
-
-We present **Riemannian Informed Trees (RIT\*)**, a planning framework that
-replaces Euclidean primitives in batch-informed search with their Riemannian
-counterparts. RIT\* constructs a tighter, cost-consistent informed set,
-performs a nearest-neighbour search under an anisotropic distance metric, and
-evaluates edge costs efficiently via a cascading scheme. We further introduce a
-**Collision-Adaptive Metric Refinement (CARM)**, which learns an
-obstacle-proximity cost field online from collision feedback, reducing the
-reliance on prior metric design in practical settings.
-
-Experiments across environments from 2-D to 14-D show that RIT\* is competitive
-in low-dimensional and spatially constant-metric settings and produces
-substantially lower-cost solutions when the metric varies spatially in
-high-dimensional configuration spaces. Performance gains scale with anisotropy
-and dimension, reaching up to **13.0 %** improvement in median initial cost
-over BIT\* in the 3-D anisotropic benchmark, up to **9.0 %** in median final
-cost in 6-DOF manipulation, and **24.8 – 63.5 %** in a 14-DOF bimanual planning
-problem, where Euclidean-informed baselines degrade.
-
----
-
-## Contributions
-
-1. **Riemannian informed planning.** The informed set, nearest-neighbour
-   search, and edge cost are all defined under a spatially varying metric
-   tensor $G(x)$, focusing sampling on cost-relevant regions.
-2. **Online proximity-aware metric refinement (CARM).** A collision-adaptive
-   metric learned from planning feedback; no prior obstacle knowledge required.
-3. **Comprehensive evaluation.** 2-D / 3-D benchmarks, 6-DOF UR10e
-   manipulation (simulation and real robot), and 14-DOF Tiago Pro bimanual
-   planning, compared against seven asymptotically optimal baselines.
-
----
-
-## Citation
-
-If you use RIT\* in your research, please cite:
-
-```bibtex
-@article{uddin2026rit,
-  title   = {RIT*: Riemannian Informed Trees for Cost-Adaptive Optimal Motion Planning},
-  author  = {Ud Din, Muhayy and Nadar, Ahmed and Rosell, Jan and Hussain, Irfan},
-  journal = {IEEE Robotics and Automation Letters},
-  year    = {2026}
-}
-```
 
 ---
 
