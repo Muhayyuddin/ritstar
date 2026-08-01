@@ -15,29 +15,29 @@ Reference implementation accompanying the IEEE RA-L paper:
 <table align="center">
   <tr>
     <td align="center" width="33%">
-      <video src="assets/videos/sim_drill.mp4" autoplay loop muted playsinline controls width="100%"></video><br/>
+      <img src="assets/gifs/manipulation/sim_drill.gif" width="100%" alt="UR10e drill pick-and-place (simulation)"/><br/>
       <sub>UR10e – drill pick-and-place (sim)</sub>
     </td>
     <td align="center" width="33%">
-      <video src="assets/videos/sim_shelf1.mp4" autoplay loop muted playsinline controls width="100%"></video><br/>
+      <img src="assets/gifs/manipulation/sim_shelf1.gif" width="100%" alt="UR10e shelf grasp (simulation)"/><br/>
       <sub>UR10e – shelf grasp (sim)</sub>
     </td>
     <td align="center" width="33%">
-      <video src="assets/videos/sim_wall1.mp4" autoplay loop muted playsinline controls width="100%"></video><br/>
+      <img src="assets/gifs/manipulation/sim_wall1.gif" width="100%" alt="UR10e over-wall placement (simulation)"/><br/>
       <sub>UR10e – over-wall placement (sim)</sub>
     </td>
   </tr>
   <tr>
     <td align="center" width="33%">
-      <video src="assets/videos/real-shelf1.mp4" autoplay loop muted playsinline controls width="100%"></video><br/>
+      <img src="assets/gifs/manipulation/real-shelf1.gif" width="100%" alt="UR10e shelf grasp (real robot)"/><br/>
       <sub>UR10e – shelf grasp (real robot)</sub>
     </td>
     <td align="center" width="33%">
-      <video src="assets/videos/real_wall.mp4" autoplay loop muted playsinline controls width="100%"></video><br/>
+      <img src="assets/gifs/manipulation/real_wall.gif" width="100%" alt="UR10e over-wall placement (real robot)"/><br/>
       <sub>UR10e – over-wall placement (real robot)</sub>
     </td>
     <td align="center" width="33%">
-      <video src="assets/videos/tiago_pro_14D.mp4" autoplay loop muted playsinline controls width="100%"></video><br/>
+      <img src="assets/gifs/manipulation/tiago_pro_14D.gif" width="100%" alt="Tiago Pro 14-DOF bimanual grasp"/><br/>
       <sub>Tiago Pro – 14-DOF bimanual grasp</sub>
     </td>
   </tr>
