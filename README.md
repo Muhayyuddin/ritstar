@@ -73,7 +73,6 @@ run_all.py              # run benchmark + ablation + plots in sequence
 run_benchmark_plots.py  # generate Fig. 6 success-rate / cost plots
 run_carm_ral.py         # CARM overhead measurement (Table II footnote)
 run_2d_obstacle_demo.py # animated 2-D planning demo
-run_abstract_paths.py   # paths for paper graphical abstract
 run_6d_analysis.py      # UR10 6-D analysis
 run_full_analysis.py    # full multi-environment analysis
 manipulation/
