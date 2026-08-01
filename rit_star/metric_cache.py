@@ -59,12 +59,23 @@ class MetricFieldCache:
         '_riemannian_vol_cache',
         '_collision_step_size', '_min_collision_checks',
         '_no_cascading',
+        '_n_quad', '_gl_ts', '_gl_ws',
     )
 
     def __init__(self, metric: RiemannianMetric, bounds: list,
                  resolution: int = 32, collision_step_size: float = 0.01,
-                 min_collision_checks: int = 20):
+                 min_collision_checks: int = 20,
+                 n_quad: int = 10):
         self._no_cascading = False
+        # Gauss-Legendre quadrature nodes for L3 arc-length integration.
+        # Configurable so callers can trade accuracy vs. speed:
+        #   n_quad=10  — default, matches published RIT* results.
+        #   n_quad=20  — near-exact for smooth spatially-varying metrics.
+        #   n_quad=5   — faster for constant metrics (redundant but harmless).
+        self._n_quad = n_quad
+        _nodes, _weights = leggauss(n_quad)
+        self._gl_ts = np.asarray(0.5 * (_nodes + 1.0), dtype=float)   # map [-1,1]→[0,1]
+        self._gl_ws = np.asarray(0.5 * _weights,        dtype=float)
         self.metric = metric
         self.dim = len(bounds)
         self._lo = np.array([b[0] for b in bounds], dtype=float)
@@ -312,12 +323,12 @@ class MetricFieldCache:
         if self._is_conformal:
             dd = float(diff @ diff)
             total = 0.0
-            for t_i, w_i in zip(_GL_TS_10, _GL_WS_10):
+            for t_i, w_i in zip(self._gl_ts, self._gl_ws):
                 s = self._interp_scale(x + t_i * diff)
                 total += w_i * np.sqrt(s * dd)
             return float(total)
         total = 0.0
-        for t_i, w_i in zip(_GL_TS_10, _GL_WS_10):
+        for t_i, w_i in zip(self._gl_ts, self._gl_ws):
             Gi = self.G(x + t_i * diff)
             total += w_i * np.sqrt(max(float(diff @ Gi @ diff), 0.0))
         return float(total)
@@ -369,7 +380,7 @@ class MetricFieldCache:
 
         if self._is_conformal:
             dd = float(diff @ diff)
-            for t_i, w_i in zip(_GL_TS_10, _GL_WS_10):
+            for t_i, w_i in zip(self._gl_ts, self._gl_ws):
                 pt = x + t_i * diff
                 if not collision_free(pt):
                     return np.inf, False
@@ -377,7 +388,7 @@ class MetricFieldCache:
                 s = self._interp_scale(pt)
                 total += w_i * np.sqrt(s * dd)
         else:
-            for t_i, w_i in zip(_GL_TS_10, _GL_WS_10):
+            for t_i, w_i in zip(self._gl_ts, self._gl_ws):
                 pt = x + t_i * diff
                 if not collision_free(pt):
                     return np.inf, False
@@ -390,8 +401,7 @@ class MetricFieldCache:
         nc = self._min_collision_checks
         n_extra = max(nc, min(nc * 5, int(np.ceil(length / self._collision_step_size))))
         inv_n = 1.0 / n_extra
-        # Precompute skip mask once (avoids a Python generator per iteration)
-        gl_ts_arr = _GL_TS_10  # shape (10,)
+        gl_ts_arr = self._gl_ts
         for i in range(n_extra + 1):
             t = i * inv_n
             if np.any(np.abs(gl_ts_arr - t) < self._collision_step_size):
@@ -437,7 +447,7 @@ class MetricFieldCache:
 
         if self._is_conformal:
             dd = float(diff @ diff)
-            for t_i, w_i in zip(_GL_TS_10, _GL_WS_10):
+            for t_i, w_i in zip(self._gl_ts, self._gl_ws):
                 pt = x + t_i * diff
                 if not collision_free(pt):
                     return np.inf, False, pt.copy()
@@ -445,7 +455,7 @@ class MetricFieldCache:
                 s = self._interp_scale(pt)
                 total += w_i * np.sqrt(s * dd)
         else:
-            for t_i, w_i in zip(_GL_TS_10, _GL_WS_10):
+            for t_i, w_i in zip(self._gl_ts, self._gl_ws):
                 pt = x + t_i * diff
                 if not collision_free(pt):
                     return np.inf, False, pt.copy()
@@ -456,7 +466,7 @@ class MetricFieldCache:
         nc = self._min_collision_checks
         n_extra = max(nc, min(nc * 5, int(np.ceil(length / self._collision_step_size))))
         inv_n = 1.0 / n_extra
-        gl_ts_arr = _GL_TS_10
+        gl_ts_arr = self._gl_ts
         for i in range(n_extra + 1):
             t = i * inv_n
             if np.any(np.abs(gl_ts_arr - t) < self._collision_step_size):

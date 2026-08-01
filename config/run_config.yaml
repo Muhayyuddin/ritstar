@@ -44,7 +44,7 @@ environments: ['2D Random World', '3D Diagonal', 'UR10_pick_place_drill', 'Tiago
 
 # Benchmark parameters
 timeout_seconds: 250
-n_trials: 10
+n_trials: 1
 max_iterations: 200
 batch_size: 100
 base_seed: 60

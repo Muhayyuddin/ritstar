@@ -272,7 +272,8 @@ class RITStar:
                  carm_sigma: float = 0.1,
                  carm_alpha: float = 5.0,
                  carm_rebuild_interval: int = 20,
-                 collision_step_size: float = 0.0):
+                 collision_step_size: float = 0.0,
+                 n_quad: int = 10):
 
         self.x_start = np.asarray(x_start, dtype=float)
         self.x_goal = np.asarray(x_goal, dtype=float)
@@ -309,9 +310,11 @@ class RITStar:
             self._collision_step_size = collision_step_size
         # min checks: 20 for all dims
         _min_checks = 20
+        self._n_quad = n_quad
         self._mc = MetricFieldCache(self.metric, self.bounds, resolution=cache_res,
                                     collision_step_size=self._collision_step_size,
-                                    min_collision_checks=_min_checks)
+                                    min_collision_checks=_min_checks,
+                                    n_quad=n_quad)
         self._cache_res = cache_res
 
         # Create GeodesicComputer AFTER cache for accurate conformal geodesics
@@ -436,9 +439,13 @@ class RITStar:
         if path and len(path) > 2:
             n_sc = 80 + 50 * max(0, self.dim - 2)  # more attempts in high-D
             path = self._shortcut_path(path, n_attempts=n_sc)
-        # Recompute exact final cost using original metric (not cache)
+        # Recompute final cost using L3 (n_quad-point GL) — consistent
+        # with the costs accumulated during planning.  For constant
+        # metrics (Euclidean, DiagonalAnisotropic) this equals midpoint.
+        # For spatially-varying metrics (CARM, ObstacleInflated) this
+        # eliminates the midpoint vs. L3 discrepancy.
         if path and len(path) > 1:
-            exact = sum(riemannian_edge_cost(path[i], path[i+1], self.metric)
+            exact = sum(self._mc.edge_cost_exact(path[i], path[i+1])
                         for i in range(len(path) - 1))
             self.c_best = exact
             if self._stats:
@@ -483,10 +490,10 @@ class RITStar:
                 'c_best': self.c_best,
             }
 
-        # Recompute exact final cost
+        # Recompute final cost using L3 — consistent with planning costs
         path = self._extract_path()
         if path and len(path) > 1:
-            exact = sum(riemannian_edge_cost(path[i], path[i+1], self.metric)
+            exact = sum(self._mc.edge_cost_exact(path[i], path[i+1])
                         for i in range(len(path) - 1))
             self.c_best = exact
             if self._stats:
@@ -1099,6 +1106,7 @@ class RITStar:
         self._mc = MetricFieldCache(self.metric, self.bounds,
                                     resolution=self._cache_res,
                                     collision_step_size=self._collision_step_size,
+                                    n_quad=self._n_quad,
                                     min_collision_checks=_min_checks)
         # Re-propagate costs from root so that g-values reflect the
         # updated CARM metric.  Edges that now pass through inflated
