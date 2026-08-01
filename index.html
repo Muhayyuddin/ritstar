@@ -233,6 +233,43 @@
       margin-top: 2px;
     }
 
+    /* ── Citation ─────────────────────────────────────────────── */
+    .citation-box {
+      background: #16213e;
+      color: #e8eaf6;
+      border-radius: 12px;
+      padding: 20px 24px;
+      font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+      font-size: 0.88rem;
+      line-height: 1.55;
+      overflow-x: auto;
+      white-space: pre;
+      box-shadow: 0 2px 12px rgba(0,0,0,0.08);
+      position: relative;
+    }
+    .citation-copy {
+      position: absolute;
+      top: 12px;
+      right: 12px;
+      background: #e94560;
+      color: #fff;
+      border: none;
+      padding: 5px 12px;
+      border-radius: 14px;
+      font-size: 0.75rem;
+      font-weight: 600;
+      cursor: pointer;
+      letter-spacing: 0.04em;
+    }
+    .citation-copy:hover { background: #d63852; }
+    .citation-meta {
+      margin-top: 14px;
+      color: #555;
+      font-size: 0.95rem;
+    }
+    .citation-meta a { color: #0f3460; font-weight: 600; text-decoration: none; }
+    .citation-meta a:hover { text-decoration: underline; }
+
     /* ── Footer ───────────────────────────────────────────────── */
     footer {
       background: #16213e;
@@ -357,7 +394,7 @@
   </p>
   <div class="action-btns">
     <button class="action-btn btn-reproduce" onclick="openReadme()">&#128196; Reproduce Results</button>
-    <button class="action-btn btn-github"    onclick="openComingSoon('GitHub')">&#128025; GitHub</button>
+    <a class="action-btn btn-github" href="https://github.com/Muhayyuddin/ritstar" target="_blank" rel="noopener">&#128025; GitHub</a>
     <button class="action-btn btn-preprint"  onclick="openComingSoon('Preprint')">&#128209; Preprint</button>
   </div>
   <nav>
@@ -367,6 +404,7 @@
     <a href="#robot-real">Real Robot</a>
     <a href="#robot-sim">Simulation</a>
     <a href="#method-details">Method Details</a>
+    <a href="#citation">Citation</a>
   </nav>
 </header>
 
@@ -721,6 +759,29 @@
   </div>
 </section>
 
+<!-- ══════════════════════════════════════════════════════════════ -->
+<!--  CITATION                                                      -->
+<!-- ══════════════════════════════════════════════════════════════ -->
+<section id="citation">
+  <h2>Citation</h2>
+  <p class="section-desc">
+    If you use RIT* in your research, please cite our IEEE Robotics and
+    Automation Letters paper:
+  </p>
+  <div class="citation-box">
+    <button class="citation-copy" onclick="copyCitation(this)">Copy</button><span id="bibtex">@article{uddin2026rit,
+  title   = {RIT*: Riemannian Informed Trees for Cost-Adaptive Optimal Motion Planning},
+  author  = {Ud Din, Muhayy and Nadar, Ahmed and Rosell, Jan and Hussain, Irfan},
+  journal = {IEEE Robotics and Automation Letters},
+  year    = {2026}
+}</span></div>
+  <p class="citation-meta">
+    <strong>Ud Din, M., Nadar, A., Rosell, J., &amp; Hussain, I.</strong> (2026).
+    RIT*: Riemannian Informed Trees for Cost-Adaptive Optimal Motion Planning.
+    <em>IEEE Robotics and Automation Letters</em>.
+  </p>
+</section>
+
 </main>
 
 <footer>
@@ -934,6 +995,15 @@ function openReadme() {
   var raw = document.getElementById('readme-src').textContent;
   var html = simpleMarkdown(raw);
   openModal('Reproduce Results', '<div class="md-content">' + html + '</div>');
+}
+
+function copyCitation(btn) {
+  var text = document.getElementById('bibtex').textContent;
+  navigator.clipboard.writeText(text).then(function() {
+    var original = btn.textContent;
+    btn.textContent = 'Copied!';
+    setTimeout(function(){ btn.textContent = original; }, 1500);
+  });
 }
 
 document.addEventListener('keydown', function(e) {
