@@ -8,9 +8,26 @@ Reference implementation accompanying the IEEE RA-L paper:
 > **"RIT\*: Riemannian Informed Trees for Cost-Adaptive Optimal Motion Planning."**
 > *IEEE Robotics and Automation Letters*, 2026.
 
-<p align="center">
-  <img src="assets/gifs/config_2d_random_world_tree_growth_carm.gif" width="20%" alt="RIT* tree growth on the 2-D random world with CARM enabled"/>
-</p>
+<table align="center">
+  <tr>
+    <td align="center" width="25%">
+      <img src="assets/gifs/config_2d_random_world_tree_growth_carm.gif" width="100%" alt="RIT* + CARM on 2-D random world"/><br/>
+      <sub>2-D random world (CARM)</sub>
+    </td>
+    <td align="center" width="25%">
+      <img src="assets/gifs/config_2d_diagonal_tree_growth_carm.gif" width="100%" alt="RIT* + CARM on 2-D anisotropic diagonal"/><br/>
+      <sub>2-D anisotropic diagonal (CARM)</sub>
+    </td>
+    <td align="center" width="25%">
+      <img src="assets/gifs/config_3d_diagonal_tree_growth.gif" width="100%" alt="RIT* on 3-D anisotropic diagonal"/><br/>
+      <sub>3-D anisotropic diagonal</sub>
+    </td>
+    <td align="center" width="25%">
+      <img src="assets/gifs/config_3d_corridor_tree_growth.gif" width="100%" alt="RIT* on 3-D corridor"/><br/>
+      <sub>3-D corridor</sub>
+    </td>
+  </tr>
+</table>
 
 <table align="center">
   <tr>
